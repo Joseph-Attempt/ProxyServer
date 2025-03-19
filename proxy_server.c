@@ -32,12 +32,12 @@
 void signalHandler() {
     printf("SIGNAL HANDLER WORKED\n");
     // pthread_exit(0);
-    exit(1);
+    exit(EXIT_FAILURE);
 }
 
 void error(char *msg) {
     perror(msg);
-    exit(1);
+    exit(EXIT_FAILURE);
   }
 
 
@@ -57,35 +57,91 @@ int sendall(int s, char *buf, int len){
     return total;
 } 
 
-//strdup creates a copy of the string
-//strtok_r breaks the strings into tokens
-int verify_HTTP_Header(char http_req_header[BUFSIZE]) {
-    
-    char *http_body_separator = strstr(http_req_header, "\r\n\r\n");
-    if (http_body_separator == NULL) return 1; //verify double carriage return
-
+//Verify the HTTP Request Header: Verify double carriage return, No other Method but GET used, and Host Name resolves to IP Address
+int verify_HTTP_Req_Header(char http_req_header[BUFSIZE]) {
+    struct hostent *req_host;
+    char *http_body_separator;
     char *saveptr_http_header;
-    char* copy_http_req_header = strdup(http_req_header);
-
-    printf("This is the COPY http req header:\n\n%s\n", copy_http_req_header);
-    char* http_header_line = strtok_r(copy_http_req_header, "\r\n", &saveptr_http_header); //Will be first line with verb, path, version
-    
+    char* copy_http_req_header;
+    char* http_header_line;
     char *saveptr_line_http_header;
-    char *copy_http_header_line = strdup(http_header_line);
-    char *http_verb =  strtok_r(copy_http_header_line, " ", &saveptr_line_http_header);
-    char *http_url =  strtok_r(NULL, " ", &saveptr_line_http_header);
-    char *http_version =  strtok_r(NULL, " ", &saveptr_line_http_header);
+    char *copy_http_header_line; 
+    char *http_verb;
+    char *http_url;
+    char *http_version; 
+    char *saveptr_line_host;
+    char *copy_header_line_host;
+    char *host_name;
 
-    printf("HTTP Verb: %s\n", http_verb);
-    printf("HTTP url: %s\n", http_url);
-    printf("HTTP Version: %s\n", http_version);
-    
-    // while (http_header_line !=NULL) {
-    //     printf("This is http header line :\n%s\n", http_header_line);
-    //     http_header_line = strtok_r(NULL, "\r\n", &saveptr);
-    // }
+
+    http_body_separator = strstr(http_req_header, "\r\n\r\n");
+    if (http_body_separator == NULL){
+        //TODO: Need to put a 400 Bad Request
+        printf("The HTTP Body does not have a double carriage return. Improperly formatted"); 
+        return 1; 
+    }
+
+    copy_http_req_header = strdup(http_req_header);//TODO: chek if strdup fails
+    http_header_line = strtok_r(copy_http_req_header, "\r\n", &saveptr_http_header); //TODO: Check if it fails ?    
+    copy_http_header_line = strdup(http_header_line);//TODO: chek if strdup fails
+    http_verb =  strtok_r(copy_http_header_line, " ", &saveptr_line_http_header);
+    http_url =  strtok_r(NULL, " ", &saveptr_line_http_header); //TODO: Delete ? Unsure if I am checking these
+    http_version =  strtok_r(NULL, " ", &saveptr_line_http_header);// TODO: delete? 
+
+    if (strcasecmp(http_verb, "GET") != 0){
+        printf("The verb was not GET\n");
+        return 1;
+    } 
+
+    http_header_line = strtok_r(NULL, "\r\n", &saveptr_http_header); 
+    copy_header_line_host = strdup(http_header_line);//TODO: chek if strdup fails
+    strtok_r(copy_header_line_host, " ", &saveptr_line_host);
+    host_name = strtok_r(NULL, " ", &saveptr_line_host);
+    req_host = gethostbyname(host_name); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
+
+    if (req_host == NULL) {//if there is no ip address, req_host will be NULL
+        //TODO: NEED to put 404 NOT Found
+        printf("gethostbyname returned NULL.\n");
+        return 1;
+    }
+
+
+    //TODO: http method verification ????
+
+    //TODO: Check for Content Length! Need to do!
 
     return 0;
+}
+
+int grabContentLength(char http_res_header[BUFSIZE]) {
+    char *content_length_exists;
+    char *saveptr_http__res_header;
+    char* copy_http_res_header;
+    char* http_header_line;
+    char *saveptr_content_length_line;
+    char *char_content_length;
+    int content_length;
+    
+    // TODO: Build a function verifynig the response header???
+    content_length_exists = strstr(http_res_header, "Content-Length");
+    if (content_length_exists == NULL){
+        printf("Content-Length Does not Exist.\n"); 
+        return -1; 
+    }
+
+    copy_http_res_header = strdup(http_res_header);//TODO: chek if strdup fails
+    http_header_line = strtok_r(copy_http_res_header, "\r\n", &saveptr_http__res_header); //TODO: Check if it fails ?    
+
+    while (1) {
+        content_length_exists = strstr(http_header_line, "Content-Length"); //TODO: Concerned if the content-length is spelled differently
+        if (content_length_exists != NULL) break;
+        http_header_line = strtok_r(NULL, "\r\n", &saveptr_http__res_header); //TODO: Check if it fails ?    
+    }
+
+    char_content_length = strtok_r(http_header_line, " ", &saveptr_content_length_line);
+    char_content_length = strtok_r(NULL, " ", &saveptr_content_length_line);
+    content_length = atoi(char_content_length);
+    return content_length;
 }
 
 void *handle_connection(void *p_client_socket) {
@@ -97,16 +153,84 @@ void *handle_connection(void *p_client_socket) {
     int n; 
     int bytes_read;
 
+    int portno;
+    int client_sockfd;
+    int optval;
+    int clientlen;
+    struct sockaddr_in serveraddr; 
+    struct sockaddr_in clientaddr;
+    struct hostent *hostp;
+    char *hostaddrp;
+
+    struct hostent *req_host;
+    char *saveptr_http_header;
+    char* copy_http_req_header;
+    char* http_header_line;
+    char *saveptr_line_host;
+    char *header_line_host;
+    char *host_name;
+
+
     bzero(buf, BUFSIZE);
 
     n = recv(client_socket, buf, BUFSIZE, 0);
     if (n < 0) error("ERROR in recvfrom\n");
     
+    if (verify_HTTP_Req_Header(buf) !=0) {
+        printf("Verify HTTP Req Header had some error\n");
+        error("HTTP Verification Failed");
+        // return 1;
+    }
+
+    //TODO: Create a second socket and send a request to the specified server
+    
+    copy_http_req_header = strdup(buf);//TODO: chek if strdup fails
+    http_header_line = strtok_r(copy_http_req_header, "\r\n", &saveptr_http_header); //TODO: Check if it fails ?    
+    http_header_line = strtok_r(NULL, "\r\n", &saveptr_http_header); 
+    header_line_host = strdup(http_header_line);//TODO: chek if strdup fails
+    strtok_r(header_line_host, " ", &saveptr_line_host);
+    host_name = strtok_r(NULL, " ", &saveptr_line_host);
+    req_host = gethostbyname(host_name); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
+
+    // printf("req_host.h_addr_list[0]: %s\n", req_host->h_addr_list[0]);
+
+    // portno = atoi(argv[1]);
+    portno = 80; //TODO: Build in functionality for the user setting the port
+    client_sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (client_sockfd < 0) error("ERROR opening socket\n");
+    
+    
+    bzero((char *) &serveraddr, sizeof(serveraddr));
+    serveraddr.sin_family = AF_INET;
+    memcpy(&serveraddr.sin_addr.s_addr, req_host->h_addr_list[0], req_host->h_length);
+    // serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    serveraddr.sin_port = htons((unsigned short)portno);
+
+    if (connect(client_sockfd, (struct sockaddr*) &serveraddr, sizeof(serveraddr)) == -1){
+        printf("There was a problem connecting to the actual server\n");
+        error("connect:");
+        close(client_sockfd);
+        exit(EXIT_FAILURE);
+    }
+
+    
+    sendall(client_sockfd, buf, BUFSIZE);
+    bzero(buf, BUFSIZE); 
+    //TODO: Grab Content length, read the body until content lenght is done, break the loop
+
+
+    // while (1) {
+    //     n =  recv(client_sockfd, buf, BUFSIZE, 0);
+    //     printf("after recv: buf: \n%s\n", buf); 
+    // }
+    n =  recv(client_sockfd, buf, BUFSIZE, 0);
+    grabContentLength(buf);
+    printf("after recv: buf: \n%s\n", buf); 
+
+    //TODO: relay the results for the server (socket2) to the client (socket1)
 
     // fp = fopen(filename, "r"); //Checking for file existense and readability happens in buildHTTPResponseHeader
     // n = send(client_socket, response_http_header, strlen(response_http_header), 0);
-    verify_HTTP_Header(buf);
-    bzero(buf, BUFSIZE); 
     // while (1){
     //   bytes_read = fread(buf, 1, BUFSIZE, fp);
     //   if (bytes_read < 1) {
@@ -220,7 +344,7 @@ void *handle_connection(void *p_client_socket) {
  
     if (argc != 2) {
       fprintf(stderr, "usage: %s <port>\n", argv[0]);
-      exit(1);
+      exit(EXIT_FAILURE);
     }
  
     portno = atoi(argv[1]);
@@ -254,7 +378,8 @@ void *handle_connection(void *p_client_socket) {
      int *pclient = malloc(sizeof(int));
      *pclient = connfd;
      handle_connection(pclient);
- 
+    
+    
      // pthread_t t;
      // pthread_create(&t, NULL, handle_connection, pclient);
      // pthread_detach(t);
@@ -270,11 +395,11 @@ void *handle_connection(void *p_client_socket) {
      //CITATION: https://www.youtube.com/watch?v=Pg_4Jz8ZIH4
      pthread_t t;
      int *pclient = malloc(sizeof(int));
-     *pclient = connfd;
+     *pclient = connfd;Y f
      pthread_create(&t, NULL, handle_connection, pclient);
      pthread_detach(t);
     }
-    
+    w
     pthread_exit(0);
     */
   }

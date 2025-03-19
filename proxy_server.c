@@ -123,6 +123,7 @@ int grabContentLength(char http_res_header[BUFSIZE]) {
     int content_length;
     
     // TODO: Build a function verifynig the response header???
+    // printf("http_res_header: \n%s\n", http_res_header);
     content_length_exists = strstr(http_res_header, "Content-Length");
     if (content_length_exists == NULL){
         printf("Content-Length Does not Exist.\n"); 
@@ -151,7 +152,6 @@ void *handle_connection(void *p_client_socket) {
     char buf[BUFSIZE]; 
     FILE *fp; 
     int n; 
-    int bytes_read;
 
     int portno;
     int client_sockfd;
@@ -169,7 +169,11 @@ void *handle_connection(void *p_client_socket) {
     char *saveptr_line_host;
     char *header_line_host;
     char *host_name;
+    char *http_res_ends;
 
+    int content_length;
+    int http_res_body_bytes_recv = 0;
+    int http_res_header_bytes;
 
     bzero(buf, BUFSIZE);
 
@@ -219,13 +223,41 @@ void *handle_connection(void *p_client_socket) {
     //TODO: Grab Content length, read the body until content lenght is done, break the loop
 
 
-    // while (1) {
-    //     n =  recv(client_sockfd, buf, BUFSIZE, 0);
-    //     printf("after recv: buf: \n%s\n", buf); 
-    // }
     n =  recv(client_sockfd, buf, BUFSIZE, 0);
-    grabContentLength(buf);
-    printf("after recv: buf: \n%s\n", buf); 
+    content_length = grabContentLength(buf);
+    http_res_ends = strstr(buf, "\r\n\r\n");
+    http_res_header_bytes = http_res_ends + 4 - buf;
+
+    http_res_body_bytes_recv = n - http_res_header_bytes;
+    printf("content_length: %d, n: %d, http_res_header_bytes: %d, http_res_body_bytes_recv: %d\n", content_length,n, http_res_header_bytes, http_res_body_bytes_recv);
+    // printf("Trying to start after the carriage return: \n%s\n", http_res_ends + 4);
+    while (http_res_body_bytes_recv < content_length) {
+    //     //TODO: Need to find some way to separate http response from the header
+        n =  recv(client_sockfd, buf, BUFSIZE, 0);
+        if ( (n+ http_res_body_bytes_recv) > content_length) {
+            char remainder_of_body[2048];
+            strncpy(remainder_of_body, buf, n - (n+http_res_body_bytes_recv-content_length) );
+            http_res_body_bytes_recv = http_res_body_bytes_recv + n - (n+http_res_body_bytes_recv-content_length) ;
+            // printf("content_length: %d, n: %d, http_res_header_bytes: %d, http_res_body_bytes_recv: %d\n", content_length,n, http_res_header_bytes, http_res_body_bytes_recv);
+            //TODO: the prit statement below may go below the body by a byte or two. Need to recheck if my files end up not matching by a byte 
+            printf("IF AFTER RECV:remainder_of_body: \n%s\n", remainder_of_body); 
+            break;
+        }else {
+
+            http_res_body_bytes_recv = http_res_body_bytes_recv + n;
+            // printf("content_length: %d, n: %d, http_res_header_bytes: %d, http_res_body_bytes_recv: %d\n", content_length,n, http_res_header_bytes, http_res_body_bytes_recv);
+            // printf("ELSE AFTER RECV:BUF: \n%s\n", buf); 
+        }
+
+    }
+
+    // printf("after recv: buf: \n%s\n", buf);
+     
+    // n =  recv(client_sockfd, buf, BUFSIZE, 0);
+    // printf("after recv: buf: \n%s\n", buf); 
+    // n =  recv(client_sockfd, buf, BUFSIZE, 0);
+    // printf("after recv: buf: \n%s\n", buf); 
+
 
     //TODO: relay the results for the server (socket2) to the client (socket1)
 

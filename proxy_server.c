@@ -16,6 +16,10 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
+// CITATION: https://stackoverflow.com/questions/7627723/how-to-create-a-md5-hash-of-a-string-in-c
+#include <openssl/md5.h>
+
+
  #define BUFSIZE 2048
  #define FILENAMESIZE 100
  #define FILETYPESIZE 100
@@ -145,6 +149,45 @@ int grabContentLength(char http_res_header[BUFSIZE]) {
     return content_length;
 }
 
+int grabFileName(char http_res_header[BUFSIZE], char file_name[200]) {
+    char *saveptr_http__res_header;
+    char* copy_http_res_header;
+    char* http_header_line;
+    char *saveptr_http_res_url;
+    char *http_res_url;
+    
+    // TODO: Build a function verifynig the response header???
+    copy_http_res_header = strdup(http_res_header);//TODO: chek if strdup fails
+    http_header_line = strtok_r(copy_http_res_header, "\r\n", &saveptr_http__res_header); //TODO: Check if it fails ?  
+    http_res_url = strtok_r(http_header_line, " ", &saveptr_http_res_url); //TODO: Check if it fails ?  
+    http_res_url = strtok_r(NULL, " ", &saveptr_http_res_url); //TODO: Check if it fails ?  
+    strncpy(file_name, http_res_url, strlen(http_res_url));
+    return 0;
+}
+
+//CITATION of str2md5: https://stackoverflow.com/questions/7627723/how-to-create-a-md5-hash-of-a-string-in-c. 
+char *str2md5(const char *str, int length) {
+    int n;
+    MD5_CTX c;
+    unsigned char digest[16];
+    char *out = (char*)malloc(33);
+    MD5_Init(&c);
+    while (length > 0) {
+        if (length > 512) {
+            MD5_Update(&c, str, 512);
+        } else {
+            MD5_Update(&c, str, length);
+        }
+        length -= 512;
+        str += 512;
+    }
+    MD5_Final(digest, &c);
+    for (n = 0; n < 16; ++n) {
+        snprintf(&(out[n*2]), 16*2, "%02x", (unsigned int)digest[n]);
+    }
+    return out;
+}
+
 void *handle_connection(void *p_client_socket) {
     int client_socket = * ((int*)p_client_socket);
     free(p_client_socket);
@@ -171,6 +214,8 @@ void *handle_connection(void *p_client_socket) {
     char *host_name;
     char *http_res_ends;
 
+    char file_name[200];
+    char full_path[400];
     int content_length;
     int http_res_body_bytes_recv = 0;
     int http_res_header_bytes;
@@ -189,7 +234,8 @@ void *handle_connection(void *p_client_socket) {
     //TODO: Create a second socket and send a request to the specified server
     
     copy_http_req_header = strdup(buf);//TODO: chek if strdup fails
-    http_header_line = strtok_r(copy_http_req_header, "\r\n", &saveptr_http_header); //TODO: Check if it fails ?    
+    http_header_line = strtok_r(copy_http_req_header, "\r\n", &saveptr_http_header); //TODO: Check if it fails ?  
+    
     http_header_line = strtok_r(NULL, "\r\n", &saveptr_http_header); 
     header_line_host = strdup(http_header_line);//TODO: chek if strdup fails
     strtok_r(header_line_host, " ", &saveptr_line_host);
@@ -207,7 +253,6 @@ void *handle_connection(void *p_client_socket) {
     bzero((char *) &serveraddr, sizeof(serveraddr));
     serveraddr.sin_family = AF_INET;
     memcpy(&serveraddr.sin_addr.s_addr, req_host->h_addr_list[0], req_host->h_length);
-    // serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
     serveraddr.sin_port = htons((unsigned short)portno);
 
     if (connect(client_sockfd, (struct sockaddr*) &serveraddr, sizeof(serveraddr)) == -1){
@@ -217,47 +262,45 @@ void *handle_connection(void *p_client_socket) {
         exit(EXIT_FAILURE);
     }
 
-    
+    grabFileName(buf,file_name);
+
     sendall(client_sockfd, buf, BUFSIZE);
     bzero(buf, BUFSIZE); 
-    //TODO: Grab Content length, read the body until content lenght is done, break the loop
-
 
     n =  recv(client_sockfd, buf, BUFSIZE, 0);
     content_length = grabContentLength(buf);
     http_res_ends = strstr(buf, "\r\n\r\n");
     http_res_header_bytes = http_res_ends + 4 - buf;
-
     http_res_body_bytes_recv = n - http_res_header_bytes;
-    printf("content_length: %d, n: %d, http_res_header_bytes: %d, http_res_body_bytes_recv: %d\n", content_length,n, http_res_header_bytes, http_res_body_bytes_recv);
-    // printf("Trying to start after the carriage return: \n%s\n", http_res_ends + 4);
+    
+
+    sprintf(full_path, "./cache/%s", str2md5(file_name, strlen(file_name)));
+    fp = fopen(full_path, "w");
+    fwrite(buf + http_res_header_bytes, 1, (n - http_res_header_bytes), fp);
+
     while (http_res_body_bytes_recv < content_length) {
-    //     //TODO: Need to find some way to separate http response from the header
         n =  recv(client_sockfd, buf, BUFSIZE, 0);
         if ( (n+ http_res_body_bytes_recv) > content_length) {
             char remainder_of_body[2048];
             strncpy(remainder_of_body, buf, n - (n+http_res_body_bytes_recv-content_length) );
+            fwrite(remainder_of_body, 1, (n - (n+http_res_body_bytes_recv-content_length)), fp);
+
             http_res_body_bytes_recv = http_res_body_bytes_recv + n - (n+http_res_body_bytes_recv-content_length) ;
             // printf("content_length: %d, n: %d, http_res_header_bytes: %d, http_res_body_bytes_recv: %d\n", content_length,n, http_res_header_bytes, http_res_body_bytes_recv);
-            //TODO: the prit statement below may go below the body by a byte or two. Need to recheck if my files end up not matching by a byte 
-            printf("IF AFTER RECV:remainder_of_body: \n%s\n", remainder_of_body); 
+            //TODO: the print statement below may go below the body by a byte or two. Need to recheck if my files end up not matching by a byte 
+            // printf("IF AFTER RECV:remainder_of_body: \n%s\n", remainder_of_body); 
             break;
         }else {
-
             http_res_body_bytes_recv = http_res_body_bytes_recv + n;
+            fwrite(buf, 1, n, fp);
+
             // printf("content_length: %d, n: %d, http_res_header_bytes: %d, http_res_body_bytes_recv: %d\n", content_length,n, http_res_header_bytes, http_res_body_bytes_recv);
             // printf("ELSE AFTER RECV:BUF: \n%s\n", buf); 
         }
-
     }
-
-    // printf("after recv: buf: \n%s\n", buf);
-     
-    // n =  recv(client_sockfd, buf, BUFSIZE, 0);
-    // printf("after recv: buf: \n%s\n", buf); 
-    // n =  recv(client_sockfd, buf, BUFSIZE, 0);
-    // printf("after recv: buf: \n%s\n", buf); 
-
+    
+    if (fclose(fp) !=0) printf("Error closing the file\n");
+  
 
     //TODO: relay the results for the server (socket2) to the client (socket1)
 
@@ -435,3 +478,9 @@ void *handle_connection(void *p_client_socket) {
     pthread_exit(0);
     */
   }
+
+/*
+Run with: lcrypto
+
+cc -Wextra proxy_server.c -o proxy_server -lcrypto
+*/

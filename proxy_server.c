@@ -188,9 +188,23 @@ char *str2md5(const char *str, int length) {
     return out;
 }
 
-int writeFileToCache(FILE *fp, char http_res[BUFSIZE], char full_path[400], int n, int content_length, int client_sockfd, int http_res_body_bytes_recv, int http_res_header_bytes){
-    //START OF RECEIVING HTTP FROM SERVER AND WRITING IT TO FILE
+//Receive data from the server and write to the cache folder
+int writeFileToCache(FILE *fp, char http_res[BUFSIZE], int client_sockfd){
+    int n;
+    int content_length;
+    int http_res_body_bytes_recv;
+    int http_res_header_bytes;
+    char *http_res_ends;
+
+
+
+    n =  recv(client_sockfd, http_res, BUFSIZE, 0);
+    content_length = grabContentLength(http_res);
+    http_res_ends = strstr(http_res, "\r\n\r\n");
+    http_res_header_bytes = http_res_ends + 4 - http_res;
+    http_res_body_bytes_recv = n - http_res_header_bytes;
     fwrite(http_res + http_res_header_bytes, 1, (n - http_res_header_bytes), fp);
+
 
     while (http_res_body_bytes_recv < content_length) {
         n =  recv(client_sockfd, http_res, BUFSIZE, 0);
@@ -218,6 +232,24 @@ int writeFileToCache(FILE *fp, char http_res[BUFSIZE], char full_path[400], int 
     return 0;
 }
 
+int grab_host_by_name(char http_res[BUFSIZE], struct hostent **req_host) {
+    char *saveptr_http_header;
+    char* copy_http_req_header;
+    char* http_header_line;
+    char *saveptr_line_host;
+    char *header_line_host;
+    char *host_name;
+    
+    copy_http_req_header = strdup(http_res);//TODO: chek if strdup fails
+    http_header_line = strtok_r(copy_http_req_header, "\r\n", &saveptr_http_header); //TODO: Check if it fails ?  
+    http_header_line = strtok_r(NULL, "\r\n", &saveptr_http_header); 
+    header_line_host = strdup(http_header_line);//TODO: chek if strdup fails
+    strtok_r(header_line_host, " ", &saveptr_line_host);
+    host_name = strtok_r(NULL, " ", &saveptr_line_host);
+    *req_host = gethostbyname(host_name); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
+    return 0;
+}
+
 void *handle_connection(void *p_client_socket) {
     int client_socket = * ((int*)p_client_socket);
     free(p_client_socket);
@@ -235,20 +267,10 @@ void *handle_connection(void *p_client_socket) {
     struct hostent *hostp;
     char *hostaddrp;
 
-    struct hostent *req_host;
-    char *saveptr_http_header;
-    char* copy_http_req_header;
-    char* http_header_line;
-    char *saveptr_line_host;
-    char *header_line_host;
-    char *host_name;
-    char *http_res_ends;
+    struct hostent *req_host = NULL; //initalized to null b/c compiling with -Wextra was giving me a uninitalized warning (due to me using it in grab_host_name fn without initializing).
 
     char file_name[200];
     char full_path[400];
-    int content_length;
-    int http_res_body_bytes_recv = 0;
-    int http_res_header_bytes;
 
     char *md5_file_name;
 
@@ -265,14 +287,16 @@ void *handle_connection(void *p_client_socket) {
 
     //TODO: Create a second socket and send a request to the specified server
     
-    copy_http_req_header = strdup(buf);//TODO: chek if strdup fails
-    http_header_line = strtok_r(copy_http_req_header, "\r\n", &saveptr_http_header); //TODO: Check if it fails ?  
+    // copy_http_req_header = strdup(buf);//TODO: chek if strdup fails
+    // http_header_line = strtok_r(copy_http_req_header, "\r\n", &saveptr_http_header); //TODO: Check if it fails ?  
     
-    http_header_line = strtok_r(NULL, "\r\n", &saveptr_http_header); 
-    header_line_host = strdup(http_header_line);//TODO: chek if strdup fails
-    strtok_r(header_line_host, " ", &saveptr_line_host);
-    host_name = strtok_r(NULL, " ", &saveptr_line_host);
-    req_host = gethostbyname(host_name); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
+    // http_header_line = strtok_r(NULL, "\r\n", &saveptr_http_header); 
+    // header_line_host = strdup(http_header_line);//TODO: chek if strdup fails
+    // strtok_r(header_line_host, " ", &saveptr_line_host);
+    // host_name = strtok_r(NULL, " ", &saveptr_line_host);
+    // req_host = gethostbyname(host_name); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
+    
+    grab_host_by_name(buf, &req_host);
 
     // printf("req_host.h_addr_list[0]: %s\n", req_host->h_addr_list[0]);
 
@@ -281,10 +305,10 @@ void *handle_connection(void *p_client_socket) {
     client_sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (client_sockfd < 0) error("ERROR opening socket\n");
     
-    
     bzero((char *) &serveraddr, sizeof(serveraddr));
     serveraddr.sin_family = AF_INET;
     memcpy(&serveraddr.sin_addr.s_addr, req_host->h_addr_list[0], req_host->h_length);
+
     serveraddr.sin_port = htons((unsigned short)portno);
 
     if (connect(client_sockfd, (struct sockaddr*) &serveraddr, sizeof(serveraddr)) == -1){
@@ -293,29 +317,20 @@ void *handle_connection(void *p_client_socket) {
         close(client_sockfd);
         exit(EXIT_FAILURE);
     }
-
     grabFileName(buf,file_name);
 
     sendall(client_sockfd, buf, BUFSIZE);
     bzero(buf, BUFSIZE); 
-
-    n =  recv(client_sockfd, buf, BUFSIZE, 0);
-    content_length = grabContentLength(buf);
-    http_res_ends = strstr(buf, "\r\n\r\n");
-    http_res_header_bytes = http_res_ends + 4 - buf;
-    http_res_body_bytes_recv = n - http_res_header_bytes;
     
     md5_file_name = str2md5(file_name, strlen(file_name));
     sprintf(full_path, "./cache/%s", md5_file_name);
 
-    //TODO: Check if file within timeout! add and symbal to this if statment
-    if (access(full_path, F_OK)){
+    //TODO: Check if file within timeout! add and symbol to this if statment
+    if (access(full_path, F_OK) == 0){
         fp = fopen(full_path, "r");
-
     }else {
         fp = fopen(full_path, "w");
-        //TODO: Making the followiong variables writeFIleToCache local variables: n, content lenght, httpres_body_bytes recv, and http_res_header_bytes
-        writeFileToCache(fp, buf, full_path, n, content_length, client_sockfd, http_res_body_bytes_recv, http_res_header_bytes);
+        writeFileToCache(fp, buf, client_sockfd);
     }
 
 

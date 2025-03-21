@@ -188,6 +188,36 @@ char *str2md5(const char *str, int length) {
     return out;
 }
 
+int writeFileToCache(FILE *fp, char http_res[BUFSIZE], char full_path[400], int n, int content_length, int client_sockfd, int http_res_body_bytes_recv, int http_res_header_bytes){
+    //START OF RECEIVING HTTP FROM SERVER AND WRITING IT TO FILE
+    fwrite(http_res + http_res_header_bytes, 1, (n - http_res_header_bytes), fp);
+
+    while (http_res_body_bytes_recv < content_length) {
+        n =  recv(client_sockfd, http_res, BUFSIZE, 0);
+        if ( (n+ http_res_body_bytes_recv) > content_length) {
+            char remainder_of_body[2048];
+            strncpy(remainder_of_body, http_res, n - (n+http_res_body_bytes_recv-content_length) );
+            fwrite(remainder_of_body, 1, (n - (n+http_res_body_bytes_recv-content_length)), fp);
+
+            http_res_body_bytes_recv = http_res_body_bytes_recv + n - (n+http_res_body_bytes_recv-content_length) ;
+            // printf("content_length: %d, n: %d, http_res_header_bytes: %d, http_res_body_bytes_recv: %d\n", content_length,n, http_res_header_bytes, http_res_body_bytes_recv);
+            //TODO: the print statement below may go below the body by a byte or two. Need to recheck if my files end up not matching by a byte 
+            // printf("IF AFTER RECV:remainder_of_body: \n%s\n", remainder_of_body); 
+            break;
+        }else {
+            http_res_body_bytes_recv = http_res_body_bytes_recv + n;
+            fwrite(http_res, 1, n, fp);
+
+            // printf("content_length: %d, n: %d, http_res_header_bytes: %d, http_res_body_bytes_recv: %d\n", content_length,n, http_res_header_bytes, http_res_body_bytes_recv);
+            // printf("ELSE AFTER RECV:BUF: \n%s\n", buf); 
+        }
+    }
+
+    if (fclose(fp) !=0) printf("Error closing the file\n");
+    //END OF RECEIVING HTTP FROM SERVER AND WRITING IT TO FILE
+    return 0;
+}
+
 void *handle_connection(void *p_client_socket) {
     int client_socket = * ((int*)p_client_socket);
     free(p_client_socket);
@@ -219,6 +249,8 @@ void *handle_connection(void *p_client_socket) {
     int content_length;
     int http_res_body_bytes_recv = 0;
     int http_res_header_bytes;
+
+    char *md5_file_name;
 
     bzero(buf, BUFSIZE);
 
@@ -273,34 +305,20 @@ void *handle_connection(void *p_client_socket) {
     http_res_header_bytes = http_res_ends + 4 - buf;
     http_res_body_bytes_recv = n - http_res_header_bytes;
     
+    md5_file_name = str2md5(file_name, strlen(file_name));
+    sprintf(full_path, "./cache/%s", md5_file_name);
 
-    sprintf(full_path, "./cache/%s", str2md5(file_name, strlen(file_name)));
-    fp = fopen(full_path, "w");
-    fwrite(buf + http_res_header_bytes, 1, (n - http_res_header_bytes), fp);
+    //TODO: Check if file within timeout! add and symbal to this if statment
+    if (access(full_path, F_OK)){
+        fp = fopen(full_path, "r");
 
-    while (http_res_body_bytes_recv < content_length) {
-        n =  recv(client_sockfd, buf, BUFSIZE, 0);
-        if ( (n+ http_res_body_bytes_recv) > content_length) {
-            char remainder_of_body[2048];
-            strncpy(remainder_of_body, buf, n - (n+http_res_body_bytes_recv-content_length) );
-            fwrite(remainder_of_body, 1, (n - (n+http_res_body_bytes_recv-content_length)), fp);
-
-            http_res_body_bytes_recv = http_res_body_bytes_recv + n - (n+http_res_body_bytes_recv-content_length) ;
-            // printf("content_length: %d, n: %d, http_res_header_bytes: %d, http_res_body_bytes_recv: %d\n", content_length,n, http_res_header_bytes, http_res_body_bytes_recv);
-            //TODO: the print statement below may go below the body by a byte or two. Need to recheck if my files end up not matching by a byte 
-            // printf("IF AFTER RECV:remainder_of_body: \n%s\n", remainder_of_body); 
-            break;
-        }else {
-            http_res_body_bytes_recv = http_res_body_bytes_recv + n;
-            fwrite(buf, 1, n, fp);
-
-            // printf("content_length: %d, n: %d, http_res_header_bytes: %d, http_res_body_bytes_recv: %d\n", content_length,n, http_res_header_bytes, http_res_body_bytes_recv);
-            // printf("ELSE AFTER RECV:BUF: \n%s\n", buf); 
-        }
+    }else {
+        fp = fopen(full_path, "w");
+        //TODO: Making the followiong variables writeFIleToCache local variables: n, content lenght, httpres_body_bytes recv, and http_res_header_bytes
+        writeFileToCache(fp, buf, full_path, n, content_length, client_sockfd, http_res_body_bytes_recv, http_res_header_bytes);
     }
-    
-    if (fclose(fp) !=0) printf("Error closing the file\n");
-  
+
+
 
     //TODO: relay the results for the server (socket2) to the client (socket1)
 
@@ -432,9 +450,7 @@ void *handle_connection(void *p_client_socket) {
     optval = 1;
     setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (const void *)&optval , sizeof(int));
  
- 
-    
- 
+  
  
     bzero((char *) &serveraddr, sizeof(serveraddr));
     serveraddr.sin_family = AF_INET;

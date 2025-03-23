@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -19,6 +21,8 @@
 // CITATION: https://stackoverflow.com/questions/7627723/how-to-create-a-md5-hash-of-a-string-in-c
 #include <openssl/md5.h>
 
+#include <fcntl.h>
+
 
  #define BUFSIZE 2048
  #define FILENAMESIZE 100
@@ -27,8 +31,6 @@
  #define HTTP_REQUEST_FILENAME_START_POSTION 5
  #define WORKINGDIRECTORYPATHSIZE 1000
  #define HTTPVERSIONSIZE 100
-
-
 
 
 
@@ -149,7 +151,7 @@ int grabContentLength(char http_res_header[BUFSIZE]) {
     return content_length;
 }
 
-int grabFileName(char http_res_header[BUFSIZE], char file_name[200]) {
+int grab_url(char http_res_header[BUFSIZE], char url[200]) {
     char *saveptr_http__res_header;
     char* copy_http_res_header;
     char* http_header_line;
@@ -161,7 +163,8 @@ int grabFileName(char http_res_header[BUFSIZE], char file_name[200]) {
     http_header_line = strtok_r(copy_http_res_header, "\r\n", &saveptr_http__res_header); //TODO: Check if it fails ?  
     http_res_url = strtok_r(http_header_line, " ", &saveptr_http_res_url); //TODO: Check if it fails ?  
     http_res_url = strtok_r(NULL, " ", &saveptr_http_res_url); //TODO: Check if it fails ?  
-    strncpy(file_name, http_res_url, strlen(http_res_url));
+    printf("grab filename actually returns url: %s\n", http_res_url);
+    strncpy(url, http_res_url, strlen(http_res_url));
     return 0;
 }
 
@@ -195,8 +198,7 @@ int writeFileToCache(FILE *fp, char http_res[BUFSIZE], int client_sockfd){
     int http_res_body_bytes_recv;
     int http_res_header_bytes;
     char *http_res_ends;
-
-
+    char remainder_of_body[BUFSIZE];
 
     n =  recv(client_sockfd, http_res, BUFSIZE, 0);
     content_length = grabContentLength(http_res);
@@ -205,30 +207,24 @@ int writeFileToCache(FILE *fp, char http_res[BUFSIZE], int client_sockfd){
     http_res_body_bytes_recv = n - http_res_header_bytes;
     fwrite(http_res + http_res_header_bytes, 1, (n - http_res_header_bytes), fp);
 
-
     while (http_res_body_bytes_recv < content_length) {
         n =  recv(client_sockfd, http_res, BUFSIZE, 0);
         if ( (n+ http_res_body_bytes_recv) > content_length) {
-            char remainder_of_body[2048];
             strncpy(remainder_of_body, http_res, n - (n+http_res_body_bytes_recv-content_length) );
             fwrite(remainder_of_body, 1, (n - (n+http_res_body_bytes_recv-content_length)), fp);
-
             http_res_body_bytes_recv = http_res_body_bytes_recv + n - (n+http_res_body_bytes_recv-content_length) ;
-            // printf("content_length: %d, n: %d, http_res_header_bytes: %d, http_res_body_bytes_recv: %d\n", content_length,n, http_res_header_bytes, http_res_body_bytes_recv);
             //TODO: the print statement below may go below the body by a byte or two. Need to recheck if my files end up not matching by a byte 
             // printf("IF AFTER RECV:remainder_of_body: \n%s\n", remainder_of_body); 
             break;
         }else {
             http_res_body_bytes_recv = http_res_body_bytes_recv + n;
             fwrite(http_res, 1, n, fp);
-
             // printf("content_length: %d, n: %d, http_res_header_bytes: %d, http_res_body_bytes_recv: %d\n", content_length,n, http_res_header_bytes, http_res_body_bytes_recv);
             // printf("ELSE AFTER RECV:BUF: \n%s\n", buf); 
         }
     }
 
     if (fclose(fp) !=0) printf("Error closing the file\n");
-    //END OF RECEIVING HTTP FROM SERVER AND WRITING IT TO FILE
     return 0;
 }
 
@@ -250,8 +246,111 @@ int grab_host_by_name(char http_res[BUFSIZE], struct hostent **req_host) {
     return 0;
 }
 
-void *handle_connection(void *p_client_socket) {
-    int client_socket = * ((int*)p_client_socket);
+long long int get_time_since_creation(char full_path[400]){
+    time_t current_seconds;
+    struct statx stx_buf;
+    statx(AT_FDCWD, full_path, 0, STATX_BTIME, &stx_buf);
+    // citation: https://stackoverflow.com/questions/2242963/get-the-current-time-in-seconds
+    current_seconds = time(NULL);
+    return (current_seconds - stx_buf.stx_btime.tv_sec);
+}
+int grab_http_version(char http_header[BUFSIZE]) {
+    char *saveptr_http_header;
+    char* copy_http_req_header;
+    char* http_header_line;
+    char *saveptr_line_http_header;
+    char *copy_http_header_line; 
+    char *http_verb;
+    char *http_url;
+    char *http_version; 
+
+    copy_http_req_header = strdup(http_header);//TODO: chek if strdup fails
+    http_header_line = strtok_r(copy_http_req_header, "\r\n", &saveptr_http_header); //TODO: Check if it fails ?    
+    copy_http_header_line = strdup(http_header_line);//TODO: chek if strdup fails
+    http_verb =  strtok_r(copy_http_header_line, " ", &saveptr_line_http_header);
+    http_url =  strtok_r(NULL, " ", &saveptr_line_http_header); //TODO: Delete ? Unsure if I am checking these
+    http_version =  strtok_r(NULL, " ", &saveptr_line_http_header);// TODO: delete? 
+    printf("http_version: %s\n", http_version);
+    return 0;
+}
+
+int set_status_code() {
+    return 0;
+}
+
+int set_response_content_type(char file_type[FILETYPESIZE], char content_type[100]) {
+    if (strcasecmp(file_type, "html") == 0) {
+        strncpy(content_type, "Content-Type: text/html", sizeof("Content-Type: text/htlm"));
+    } else if (strcasecmp(file_type, "txt") == 0) {
+        strncpy(content_type, "Content-Type: text/plain", sizeof("Content-Type: text/plain"));
+    } else if (strcasecmp(file_type, "png") == 0) {
+        strncpy(content_type, "Content-Type: image/png", sizeof("Content-Type: image/png"));
+    }  else if (strcasecmp(file_type, "gif") == 0) {
+        strncpy(content_type, "Content-Type: image/gif", sizeof("Content-Type: image/gif"));
+    }  else if (strcasecmp(file_type, "jpg") == 0) {
+        strncpy(content_type, "Content-Type: image/jpg", sizeof("Content-Type: image/jpg"));
+    }  else if (strcasecmp(file_type, "ico") == 0) {
+        strncpy(content_type, "Content-Type: image/x-icon", sizeof("Content-Type: image/x-icon"));
+    }  else if (strcasecmp(file_type, "css") == 0) {
+        strncpy(content_type, "Content-Type: text/css", sizeof("Content-Type: text/css"));
+    } else if (strcasecmp(file_type, "js") == 0) {
+        strncpy(content_type, "Content-Type: application/javascript", sizeof("Content-Type: application/javascript"));
+    } else {
+        strncpy(content_type, "Content-Type: unknown", sizeof("Content-Type: unknown"));
+        return -1;
+    }
+
+    return 0;
+    
+}
+int grab_file_type(char file_type[20], char url[200]) {
+    //Citation: https://stackoverflow.com/questions/5309471/getting-file-extension-in-c
+    char *file_at_end_of_url = strrchr(url, '/');
+    char *ext;
+
+    // if (file_at_end_of_url == NULL) Note: Consider Error checking here if I don't put the check in http verification function
+    //We are assuming url is fully formed, so if there is nothing at the end of the last slash then the assumption is that the request is for an index.html
+    if (( *(file_at_end_of_url+1)) == '\0'){
+        strcpy(file_type, "html");
+    }else { //TODO: Need to test something like http://www.yahoo.com/haha.js, something with a an actual file extension in the url
+        ext = strrchr(file_at_end_of_url, '.');
+        if (ext) {
+            strcpy(file_type, ext +1);       
+        }   
+    }
+
+    // printf("file_type: %s\n", file_type);
+
+    return 0;
+}
+
+//TODO: full_path parameter might need to be filename. I'm undecided
+int send_http_response_to_client(char http_server_response_header[BUFSIZE], char full_path[400]){
+    //TODO: I need to somehow save the http request from the client in handle_connection and pass it to this function
+    //TODO: Build HTTP Response Header
+        //HTTP Version //TODO: I will need to grab client http version and send it to this function
+        //Status Code
+        //FILE Type
+        //Response Conent Type
+        //CONTENT Length
+        //Connection status
+
+
+
+    //Response header hould look like 
+    /*
+HTTP/1.1 200 OK
+Content-Type: <> # Tells about the type of content and the formatting of <file contents> 
+Content-Length:<> # Numeric value of the number of bytes of <file contents>
+<file contents>
+    */
+    //TODO: Read the file (Sync? Might be unnecessary due to sync over if statement that calls this), send the HTTP Response Header and the file data to the client.
+
+    return 0;
+}
+
+void *handle_connection(void *p_client_socket, int timeout) {
+    int client_to_proxy_socket = * ((int*)p_client_socket);
     free(p_client_socket);
 
     char buf[BUFSIZE]; 
@@ -259,7 +358,7 @@ void *handle_connection(void *p_client_socket) {
     int n; 
 
     int portno;
-    int client_sockfd;
+    int proxy_to_server_socket;
     int optval;
     int clientlen;
     struct sockaddr_in serveraddr; 
@@ -268,15 +367,16 @@ void *handle_connection(void *p_client_socket) {
     char *hostaddrp;
 
     struct hostent *req_host = NULL; //initalized to null b/c compiling with -Wextra was giving me a uninitalized warning (due to me using it in grab_host_name fn without initializing).
-
-    char file_name[200];
+    char url[200];
     char full_path[400];
-
     char *md5_file_name;
+    long long int time_since_creation;
+    char *copy_server_response_http_header;
+    char file_type[20];
 
     bzero(buf, BUFSIZE);
 
-    n = recv(client_socket, buf, BUFSIZE, 0);
+    n = recv(client_to_proxy_socket, buf, BUFSIZE, 0);
     if (n < 0) error("ERROR in recvfrom\n");
     
     if (verify_HTTP_Req_Header(buf) !=0) {
@@ -285,52 +385,49 @@ void *handle_connection(void *p_client_socket) {
         // return 1;
     }
 
-    //TODO: Create a second socket and send a request to the specified server
-    
-    // copy_http_req_header = strdup(buf);//TODO: chek if strdup fails
-    // http_header_line = strtok_r(copy_http_req_header, "\r\n", &saveptr_http_header); //TODO: Check if it fails ?  
-    
-    // http_header_line = strtok_r(NULL, "\r\n", &saveptr_http_header); 
-    // header_line_host = strdup(http_header_line);//TODO: chek if strdup fails
-    // strtok_r(header_line_host, " ", &saveptr_line_host);
-    // host_name = strtok_r(NULL, " ", &saveptr_line_host);
-    // req_host = gethostbyname(host_name); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
-    
+    printf("Buf: \n%s\n", buf);
+    grab_http_version(buf);
+    copy_server_response_http_header = strdup(buf);    //Actually, buf is the client http request I think rather than the server response right now
     grab_host_by_name(buf, &req_host);
 
-    // printf("req_host.h_addr_list[0]: %s\n", req_host->h_addr_list[0]);
-
-    // portno = atoi(argv[1]);
-    portno = 80; //TODO: Build in functionality for the user setting the port
-    client_sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (client_sockfd < 0) error("ERROR opening socket\n");
+    //TODO: Build in functionality for the user setting the port
+    portno = 80; 
+    proxy_to_server_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (proxy_to_server_socket < 0) error("ERROR opening socket\n");
     
     bzero((char *) &serveraddr, sizeof(serveraddr));
     serveraddr.sin_family = AF_INET;
     memcpy(&serveraddr.sin_addr.s_addr, req_host->h_addr_list[0], req_host->h_length);
-
     serveraddr.sin_port = htons((unsigned short)portno);
-
-    if (connect(client_sockfd, (struct sockaddr*) &serveraddr, sizeof(serveraddr)) == -1){
+    if (connect(proxy_to_server_socket, (struct sockaddr*) &serveraddr, sizeof(serveraddr)) == -1){
         printf("There was a problem connecting to the actual server\n");
         error("connect:");
-        close(client_sockfd);
+        close(proxy_to_server_socket);
         exit(EXIT_FAILURE);
     }
-    grabFileName(buf,file_name);
 
-    sendall(client_sockfd, buf, BUFSIZE);
+    grab_url(buf,url);
+    grab_file_type(file_type, url);
+    sendall(proxy_to_server_socket, buf, BUFSIZE);
     bzero(buf, BUFSIZE); 
-    
-    md5_file_name = str2md5(file_name, strlen(file_name));
+
+    md5_file_name = str2md5(url, strlen(url));
     sprintf(full_path, "./cache/%s", md5_file_name);
 
-    //TODO: Check if file within timeout! add and symbol to this if statment
+    
+    //TODO: When Multi-Threading, will need to look portions of this, probably all of this if else chunk
     if (access(full_path, F_OK) == 0){
-        fp = fopen(full_path, "r");
+        time_since_creation = get_time_since_creation(full_path);
+        if (time_since_creation < timeout){
+            fp = fopen(full_path, "r");
+        } else {
+            remove(full_path);
+            fp = fopen(full_path, "w");
+            writeFileToCache(fp, buf, proxy_to_server_socket);
+        }
     }else {
         fp = fopen(full_path, "w");
-        writeFileToCache(fp, buf, client_sockfd);
+        writeFileToCache(fp, buf, proxy_to_server_socket);
     }
 
 
@@ -349,94 +446,12 @@ void *handle_connection(void *p_client_socket) {
     //   }
     //   bzero(buf, BUFSIZE);
     // } 
-
-    close(client_socket);
-    // fclose(fp);
+    close(proxy_to_server_socket);
+    close(client_to_proxy_socket);
+    // fclose(fp); //unsure if this should be turned back on, 
     bzero(buf, BUFSIZE);
-
     return NULL;
 }
-
-//CITATION: https://www.youtube.com/watch?v=Pg_4Jz8ZIH4
-/*
-void *handle_connection(void *p_client_socket) {
-    int client_socket = * ((int*)p_client_socket);
-    free(p_client_socket);
-
-    char buf[BUFSIZE]; 
-    char filename[FILENAMESIZE];
-    char file_type[FILETYPESIZE];
-    char http_version[HTTPVERSIONSIZE];
-    char responseType[100];
-    char http_connection_status[40];
-    char content_length[100];
-    char response_http_header[200];
-    FILE *fp; 
-    int n; 
-    int bytes_read;
-
-    bzero(buf, BUFSIZE);
-    bzero(filename, FILENAMESIZE);
-    bzero(file_type, FILETYPESIZE);
-    bzero(http_version, HTTPVERSIONSIZE);
-    bzero(responseType, 100);
-    bzero(http_connection_status, 40);
-    bzero(content_length, 100);
-    bzero(response_http_header, 200);
-
-    
-    n = recv(client_socket, buf, BUFSIZE, 0);
-    if (n < 0) error("ERROR in recvfrom\n");
-    
-    if(buildHTTPResponseHeader(response_http_header, buf, http_version, filename,  file_type, responseType,  http_connection_status, content_length, client_socket) == -1) {
-        n = send(client_socket, response_http_header, strlen(response_http_header), 0);
-        
-        close(client_socket);    
-        bzero(buf, BUFSIZE);
-        bzero(http_version, HTTPVERSIONSIZE);
-        bzero(filename, FILENAMESIZE);    
-        bzero(file_type, FILETYPESIZE);    
-        bzero(responseType,100);    
-        bzero(http_connection_status, 40);
-        bzero(content_length, 100);
-        bzero(response_http_header, 200);
-
-        return NULL;
-    }
-
-    fp = fopen(filename, "r"); //Checking for file existense and readability happens in buildHTTPResponseHeader
-    n = send(client_socket, response_http_header, strlen(response_http_header), 0);
-
-    bzero(response_http_header, 200);
-    bzero(buf, BUFSIZE); 
-    while (1){
-      bytes_read = fread(buf, 1, BUFSIZE, fp);
-      if (bytes_read < 1) {
-        break;
-      }
-      if (sendall(client_socket, buf, BUFSIZE) == -1) {
-        error("Error in sending file data");
-      }
-      bzero(buf, BUFSIZE);
-    } 
-
-    close(client_socket);
-    fclose(fp);
-    bzero(buf, BUFSIZE);
-    bzero(http_version, HTTPVERSIONSIZE);
-    bzero(filename, FILENAMESIZE);    
-    bzero(file_type, FILETYPESIZE);    
-    bzero(responseType,100);    
-    bzero(http_connection_status, 40);
-    bzero(content_length, 100);
-    bzero(response_http_header, 200);
-
-
-    return NULL;
-}
- */
-
-
 
  int main(int argc, char **argv) {
     int listenfd, connfd;
@@ -450,9 +465,9 @@ void *handle_connection(void *p_client_socket) {
     int n; 
     char buf[BUFSIZE]; 
  
-    if (argc != 2) {
-      fprintf(stderr, "usage: %s <port>\n", argv[0]);
-      exit(EXIT_FAILURE);
+    if (argc != 3) {
+        fprintf(stderr, "You need to execute this file with two arguments, port number and timeout number (in seconds)\n");
+        exit(EXIT_FAILURE);
     }
  
     portno = atoi(argv[1]);
@@ -460,13 +475,9 @@ void *handle_connection(void *p_client_socket) {
     if (listenfd < 0) error("ERROR opening socket\n");
  
     signal(SIGINT, signalHandler);
- 
- 
     optval = 1;
     setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (const void *)&optval , sizeof(int));
- 
-  
- 
+
     bzero((char *) &serveraddr, sizeof(serveraddr));
     serveraddr.sin_family = AF_INET;
     serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -483,7 +494,7 @@ void *handle_connection(void *p_client_socket) {
      //CITATION: https://www.youtube.com/watch?v=Pg_4Jz8ZIH4
      int *pclient = malloc(sizeof(int));
      *pclient = connfd;
-     handle_connection(pclient);
+     handle_connection(pclient, atoi(argv[2]));
     
     
      // pthread_t t;

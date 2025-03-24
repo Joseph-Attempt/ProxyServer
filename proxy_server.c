@@ -156,14 +156,12 @@ int grab_url(char http_res_header[BUFSIZE], char url[200]) {
     char* copy_http_res_header;
     char* http_header_line;
     char *saveptr_http_res_url;
-    char *http_res_url;
-    
+    char *http_res_url;    
     // TODO: Build a function verifynig the response header???
     copy_http_res_header = strdup(http_res_header);//TODO: chek if strdup fails
     http_header_line = strtok_r(copy_http_res_header, "\r\n", &saveptr_http__res_header); //TODO: Check if it fails ?  
     http_res_url = strtok_r(http_header_line, " ", &saveptr_http_res_url); //TODO: Check if it fails ?  
     http_res_url = strtok_r(NULL, " ", &saveptr_http_res_url); //TODO: Check if it fails ?  
-    printf("grab filename actually returns url: %s\n", http_res_url);
     strncpy(url, http_res_url, strlen(http_res_url));
     return 0;
 }
@@ -254,7 +252,8 @@ long long int get_time_since_creation(char full_path[400]){
     current_seconds = time(NULL);
     return (current_seconds - stx_buf.stx_btime.tv_sec);
 }
-int grab_http_version(char http_header[BUFSIZE]) {
+
+int grab_http_version(char http_header[BUFSIZE], char **http_version_return) {
     char *saveptr_http_header;
     char* copy_http_req_header;
     char* http_header_line;
@@ -263,14 +262,13 @@ int grab_http_version(char http_header[BUFSIZE]) {
     char *http_verb;
     char *http_url;
     char *http_version; 
-
     copy_http_req_header = strdup(http_header);//TODO: chek if strdup fails
     http_header_line = strtok_r(copy_http_req_header, "\r\n", &saveptr_http_header); //TODO: Check if it fails ?    
     copy_http_header_line = strdup(http_header_line);//TODO: chek if strdup fails
     http_verb =  strtok_r(copy_http_header_line, " ", &saveptr_line_http_header);
     http_url =  strtok_r(NULL, " ", &saveptr_line_http_header); //TODO: Delete ? Unsure if I am checking these
     http_version =  strtok_r(NULL, " ", &saveptr_line_http_header);// TODO: delete? 
-    printf("http_version: %s\n", http_version);
+    *http_version_return = http_version; 
     return 0;
 }
 
@@ -307,34 +305,92 @@ int grab_file_type(char file_type[20], char url[200]) {
     //Citation: https://stackoverflow.com/questions/5309471/getting-file-extension-in-c
     char *file_at_end_of_url = strrchr(url, '/');
     char *ext;
-
     // if (file_at_end_of_url == NULL) Note: Consider Error checking here if I don't put the check in http verification function
     //We are assuming url is fully formed, so if there is nothing at the end of the last slash then the assumption is that the request is for an index.html
     if (( *(file_at_end_of_url+1)) == '\0'){
         strcpy(file_type, "html");
-    }else { //TODO: Need to test something like http://www.yahoo.com/haha.js, something with a an actual file extension in the url
+    }else { 
         ext = strrchr(file_at_end_of_url, '.');
         if (ext) {
             strcpy(file_type, ext +1);       
         }   
     }
-
-    // printf("file_type: %s\n", file_type);
-
     return 0;
 }
 
-//TODO: full_path parameter might need to be filename. I'm undecided
-int send_http_response_to_client(char http_server_response_header[BUFSIZE], char full_path[400]){
-    //TODO: I need to somehow save the http request from the client in handle_connection and pass it to this function
-    //TODO: Build HTTP Response Header
-        //HTTP Version //TODO: I will need to grab client http version and send it to this function
-        //Status Code
-        //FILE Type
-        //Response Conent Type
-        //CONTENT Length
-        //Connection status
+int determine_connection_status(char http_client_req_header[BUFSIZE], char *http_version, char **connection_status) {
+    char *connection_status_exists;
+    char *saveptr_http__res_header;
+    char *copy_http_req_header;
+    char *http_header_line;
+    char *saveptr_connection_status_line;
+    char *char_content_length;
+    int content_length;
+    
 
+    connection_status_exists = strstr(http_client_req_header, "Connection:");
+    if (connection_status_exists == NULL) {
+        printf("Connections status does not Exist.\n"); 
+        if (strcasecmp(http_version, "HTTP/1.1") == 0) {
+            *connection_status = "Keep-Alive";
+        }else {
+            *connection_status = "Close";
+        }
+        return 0; 
+    }
+
+    copy_http_req_header = strdup(http_client_req_header);//TODO: chek if strdup fails
+    http_header_line = strtok_r(copy_http_req_header, "\r\n", &saveptr_http__res_header); //TODO: Check if it fails ?    
+
+    while (1) {
+        connection_status_exists = strstr(http_header_line, "Connection:"); //TODO: Concerned if the content-length is spelled differently
+        if (connection_status_exists != NULL) break;
+        http_header_line = strtok_r(NULL, "\r\n", &saveptr_http__res_header); //TODO: Check if it fails ?    
+    }
+
+    //TODO: Need to build in a check for if the connection status is not HTTP/1.1 or HTTP/1.0 But that probably shouldn't be here, it should be in my gett http function
+    *connection_status  = strtok_r(http_header_line, " ", &saveptr_connection_status_line);
+    *connection_status  = strtok_r(NULL, " ", &saveptr_connection_status_line);
+    return 0;
+}
+
+long long int grab_content_length_from_file(char url[200]){
+    char *md5_file_name;
+    char full_path[400];
+    md5_file_name = str2md5(url, strlen(url));
+    struct stat stat_inst;
+
+    sprintf(full_path, "./cache/%s", md5_file_name);    
+    if (stat(full_path, &stat_inst) == -1) {
+        printf("GETTING FILE CONTENT WITH STAT DID NOT WORK");
+        return -1; // Indicate an error
+    }
+    
+
+    return stat_inst.st_size; 
+}
+//TODO: full_path parameter might need to be filename. I'm undecided. Or URL
+int build_http_response_for_client(char http_client_req_header[BUFSIZE], char response_header[BUFSIZE]){
+    //I think everything I need is in the client req header. B/c from there, I should be able to get the f
+    char *http_version;
+    char file_type[20];
+    char url[200];
+    char content_type[100];
+    char *http_connection_status;
+    long long int content_length;
+
+    //TODO: Need to make sure error checking is happening in all these functions
+    grab_http_version(http_client_req_header, &http_version);
+    grab_url(http_client_req_header, url);
+    grab_file_type(file_type, url);
+    set_response_content_type(file_type, content_type);
+    determine_connection_status(http_client_req_header, http_version, &http_connection_status);
+    content_length = grab_content_length_from_file(url);
+
+
+    //TODO: Ensure other responses are built when error occurs (400 or 404)
+    sprintf(response_header, "%s 200 OK\r\n%s\r\nContent-Length: %lld\r\nConnection: %s\r\n\r\n", http_version, content_type, content_length, http_connection_status);
+    printf("Response Header: \n%s\n", response_header);
 
 
     //Response header hould look like 
@@ -354,8 +410,10 @@ void *handle_connection(void *p_client_socket, int timeout) {
     free(p_client_socket);
 
     char buf[BUFSIZE]; 
+    char *http_req_header_client;
     FILE *fp; 
     int n; 
+    int bytes_read;
 
     int portno;
     int proxy_to_server_socket;
@@ -375,6 +433,7 @@ void *handle_connection(void *p_client_socket, int timeout) {
     char file_type[20];
 
     bzero(buf, BUFSIZE);
+    // bzero(http_req_header_client, BUFSIZE);
 
     n = recv(client_to_proxy_socket, buf, BUFSIZE, 0);
     if (n < 0) error("ERROR in recvfrom\n");
@@ -386,10 +445,10 @@ void *handle_connection(void *p_client_socket, int timeout) {
     }
 
     printf("Buf: \n%s\n", buf);
-    grab_http_version(buf);
-    copy_server_response_http_header = strdup(buf);    //Actually, buf is the client http request I think rather than the server response right now
+    // grab_http_version(buf);
+    // copy_server_response_http_header = strdup(buf);    //Actually, buf is the client http request I think rather than the server response right now
+    http_req_header_client = strdup(buf);    //Actually, buf is the client http request I think rather than the server response right now
     grab_host_by_name(buf, &req_host);
-
     //TODO: Build in functionality for the user setting the port
     portno = 80; 
     proxy_to_server_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -413,13 +472,11 @@ void *handle_connection(void *p_client_socket, int timeout) {
 
     md5_file_name = str2md5(url, strlen(url));
     sprintf(full_path, "./cache/%s", md5_file_name);
-
-    
     //TODO: When Multi-Threading, will need to look portions of this, probably all of this if else chunk
     if (access(full_path, F_OK) == 0){
         time_since_creation = get_time_since_creation(full_path);
         if (time_since_creation < timeout){
-            fp = fopen(full_path, "r");
+            // fp = fopen(full_path, "r");
         } else {
             remove(full_path);
             fp = fopen(full_path, "w");
@@ -430,22 +487,30 @@ void *handle_connection(void *p_client_socket, int timeout) {
         writeFileToCache(fp, buf, proxy_to_server_socket);
     }
 
-
+    bzero(buf, BUFSIZE); 
+    build_http_response_for_client(http_req_header_client, buf);
 
     //TODO: relay the results for the server (socket2) to the client (socket1)
 
-    // fp = fopen(filename, "r"); //Checking for file existense and readability happens in buildHTTPResponseHeader
-    // n = send(client_socket, response_http_header, strlen(response_http_header), 0);
-    // while (1){
-    //   bytes_read = fread(buf, 1, BUFSIZE, fp);
-    //   if (bytes_read < 1) {
-    //     break;
-    //   }
-    //   if (sendall(client_socket, buf, BUFSIZE) == -1) {
-    //     error("Error in sending file data");
-    //   }
-    //   bzero(buf, BUFSIZE);
-    // } 
+    fp = fopen(full_path, "r"); //Checking for file existense and readability happens in buildHTTPResponseHeader
+    //sending http response header
+    n = send(client_to_proxy_socket, buf, strlen(buf), 0);
+    
+    while (1){
+      bytes_read = fread(buf, 1, BUFSIZE, fp);
+      if (bytes_read < 1) {
+        break;
+      }
+      //if I do BUFSIZE in sendall and do a verbose curl, I get * Excess found in a read: excess = 1020, size = 5124, maxdownload = 5124, bytecount = 0
+      //If I do strlen(buf), I do not get that note.
+      //I believe this means the programs I am using to test are cutting off unrelated bytes. I'm not sure I hould worry about this given my content lenght cuts off excess bytes 
+      if (sendall(client_to_proxy_socket, buf, BUFSIZE) == -1) {
+    //   if (sendall(client_to_proxy_socket, buf, strlen(buf) == -1) {
+            printf("Error in sending file data");
+      }
+      bzero(buf, BUFSIZE);
+    } 
+    
     close(proxy_to_server_socket);
     close(client_to_proxy_socket);
     // fclose(fp); //unsure if this should be turned back on, 

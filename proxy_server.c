@@ -20,8 +20,8 @@
 
 // CITATION: https://stackoverflow.com/questions/7627723/how-to-create-a-md5-hash-of-a-string-in-c
 #include <openssl/md5.h>
-
 #include <fcntl.h>
+#include <regex.h>
 
 
  #define BUFSIZE 2048
@@ -78,6 +78,7 @@ int verify_HTTP_Req_Header(char http_req_header[BUFSIZE]) {
     char *saveptr_line_host;
     char *copy_header_line_host;
     char *host_name;
+    char *host_exists;
 
 
     http_body_separator = strstr(http_req_header, "\r\n\r\n");
@@ -100,10 +101,20 @@ int verify_HTTP_Req_Header(char http_req_header[BUFSIZE]) {
     } 
 
     http_header_line = strtok_r(NULL, "\r\n", &saveptr_http_header); 
+    while (1) {
+        host_exists = strstr(http_header_line, "Host:"); //TODO: Concerned if the content-length is spelled differently
+        if (host_exists != NULL) break;
+        http_header_line = strtok_r(NULL, "\r\n", &saveptr_http_header); //TODO: Check if it fails ?    
+    }
+
     copy_header_line_host = strdup(http_header_line);//TODO: chek if strdup fails
     strtok_r(copy_header_line_host, " ", &saveptr_line_host);
     host_name = strtok_r(NULL, " ", &saveptr_line_host);
     req_host = gethostbyname(host_name); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
+    
+    // NOTE: WGET proxy test is messing up becuase its hostname does not have the http in front of it, so I am trying url becuase both curl and wget
+    //have the url. Though I remember this causing some issue when I was doing it via firefox (using url and not host category)
+    // req_host = gethostbyname(http_url); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
 
     if (req_host == NULL) {//if there is no ip address, req_host will be NULL
         //TODO: NEED to put 404 NOT Found
@@ -233,10 +244,16 @@ int grab_host_by_name(char http_res[BUFSIZE], struct hostent **req_host) {
     char *saveptr_line_host;
     char *header_line_host;
     char *host_name;
+    char *host_exists;
     
     copy_http_req_header = strdup(http_res);//TODO: chek if strdup fails
     http_header_line = strtok_r(copy_http_req_header, "\r\n", &saveptr_http_header); //TODO: Check if it fails ?  
     http_header_line = strtok_r(NULL, "\r\n", &saveptr_http_header); 
+    while (1) {
+        host_exists = strstr(http_header_line, "Host:"); //TODO: Concerned if the content-length is spelled differently
+        if (host_exists != NULL) break;
+        http_header_line = strtok_r(NULL, "\r\n", &saveptr_http_header); //TODO: Check if it fails ?    
+    }
     header_line_host = strdup(http_header_line);//TODO: chek if strdup fails
     strtok_r(header_line_host, " ", &saveptr_line_host);
     host_name = strtok_r(NULL, " ", &saveptr_line_host);
@@ -369,6 +386,75 @@ long long int grab_content_length_from_file(char url[200]){
 
     return stat_inst.st_size; 
 }
+
+
+//Currently checks against aliases, and ipv4. TODO: Need to check against h_name and possibly ipv6??
+int check_block_list(struct hostent **req_host) {
+    //TODO: compare hostname, aliase, and IP addresses to block lists 
+    regex_t reg_exp_object;
+    FILE *fp = fopen("./blocklist", "r");
+    char file_line_pattern[400];
+    char *alias = "Not Null";
+    char **ip_addr;
+    int aliases_ele = 0;
+    int ip_ele = 0;
+
+
+    if (fp == NULL) {
+        printf("blocklist file opening caused error\n");
+        return -1; 
+    }
+
+    printf("*req_host->h_name: %s\n", (*req_host)->h_name);
+
+    while (fgets(file_line_pattern, 400, fp) != NULL) {
+        file_line_pattern[strcspn(file_line_pattern, "\n")] = '\0'; //\n was causing it not to match
+        printf("file_line_pattern: %s\n", file_line_pattern);
+        if (regcomp(&reg_exp_object, file_line_pattern, REG_EXTENDED | REG_ICASE) !=0){
+            printf("There was an error with regcomp using the current file_line_pattern: %s\n", file_line_pattern);
+            continue;
+        }
+
+        if ((*req_host)->h_aliases[aliases_ele] != NULL) {
+            // printf("in aliases if statement, meaning h_aliases is not equal to null\n");
+            while ((*req_host)->h_aliases[aliases_ele] != NULL){
+                alias = (*req_host)->h_aliases[aliases_ele];
+                if (regexec(&reg_exp_object, alias, 0, NULL, 0) == 0) {
+                        // printf("WE HAVE A MATCH\n");
+                    // TODO: return some value indiciating 403
+                }else {
+                    // printf("NO Match\n");
+
+                }
+                // printf("This is the alias: %s\n", alias);
+                aliases_ele = aliases_ele + 1;
+            }
+            printf("out of alias inner while statement\n\n");
+            // regfree(&reg_exp_object);
+
+        }
+        aliases_ele = 0;
+
+        if ((*req_host)->h_addr_list != NULL) {
+            ip_addr = (*req_host)->h_addr_list;
+            while (*ip_addr != NULL){
+                struct in_addr in_addr_for_reg_check;
+                memcpy(&in_addr_for_reg_check.s_addr, *ip_addr, (*req_host)->h_length);
+                if (regexec(&reg_exp_object, inet_ntoa(in_addr_for_reg_check), 0, NULL, 0) == 0) {
+                    printf("ip addr WE HAVE A MATCH\n");
+                    // TODO: return some value indiciating 403
+                }else {
+                    //TODO: Delete this else
+                    printf("ip addr NO Match\n");
+                }
+                //TODO: Research more about pointer addition, a little concerned about double pointer concepts
+                ip_addr = ip_addr + 1;
+            }
+        }
+        regfree(&reg_exp_object);
+    }
+
+}
 //TODO: full_path parameter might need to be filename. I'm undecided. Or URL
 int build_http_response_for_client(char http_client_req_header[BUFSIZE], char response_header[BUFSIZE]){
     //I think everything I need is in the client req header. B/c from there, I should be able to get the f
@@ -390,7 +476,7 @@ int build_http_response_for_client(char http_client_req_header[BUFSIZE], char re
 
     //TODO: Ensure other responses are built when error occurs (400 or 404)
     sprintf(response_header, "%s 200 OK\r\n%s\r\nContent-Length: %lld\r\nConnection: %s\r\n\r\n", http_version, content_type, content_length, http_connection_status);
-    printf("Response Header: \n%s\n", response_header);
+    // printf("Response Header: \n%s\n", response_header);
 
 
     //Response header hould look like 
@@ -437,18 +523,24 @@ void *handle_connection(void *p_client_socket, int timeout) {
 
     n = recv(client_to_proxy_socket, buf, BUFSIZE, 0);
     if (n < 0) error("ERROR in recvfrom\n");
-    
+    // printf("Buf: \n%s\n", buf);
+
     if (verify_HTTP_Req_Header(buf) !=0) {
         printf("Verify HTTP Req Header had some error\n");
         error("HTTP Verification Failed");
         // return 1;
     }
 
-    printf("Buf: \n%s\n", buf);
+    // printf("Buf: \n%s\n", buf);
     // grab_http_version(buf);
     // copy_server_response_http_header = strdup(buf);    //Actually, buf is the client http request I think rather than the server response right now
     http_req_header_client = strdup(buf);    //Actually, buf is the client http request I think rather than the server response right now
-    grab_host_by_name(buf, &req_host);
+    // printf("client http req header: \n%s\n", http_req_header_client); //Maybe I should delete these two lines since I'm not doing anything with http req header client or maybe I should use it instead of buf in get_host_byName
+    if (grab_host_by_name(buf, &req_host) == -1 ){
+        //TODO: Return 403 b/c we'll check the blocklist file there
+        //NOTE: I actually don't think we should do that.
+    }
+    check_block_list(&req_host);
     //TODO: Build in functionality for the user setting the port
     portno = 80; 
     proxy_to_server_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -457,14 +549,15 @@ void *handle_connection(void *p_client_socket, int timeout) {
     bzero((char *) &serveraddr, sizeof(serveraddr));
     serveraddr.sin_family = AF_INET;
     memcpy(&serveraddr.sin_addr.s_addr, req_host->h_addr_list[0], req_host->h_length);
+
     serveraddr.sin_port = htons((unsigned short)portno);
+
     if (connect(proxy_to_server_socket, (struct sockaddr*) &serveraddr, sizeof(serveraddr)) == -1){
         printf("There was a problem connecting to the actual server\n");
         error("connect:");
         close(proxy_to_server_socket);
         exit(EXIT_FAILURE);
     }
-
     grab_url(buf,url);
     grab_file_type(file_type, url);
     sendall(proxy_to_server_socket, buf, BUFSIZE);
@@ -590,4 +683,13 @@ void *handle_connection(void *p_client_socket, int timeout) {
 Run with: lcrypto
 
 cc -Wextra proxy_server.c -o proxy_server -lcrypto
+
+
+Tests: 
+1) curl -v -x localhost:2000 http://httpforever.com
+2) wget -e use_proxy=yes -e http_proxy=localhost:2000 http://httpforever.com
+
+TODO: Testing Thoughts
+- I'm concerned that I have no files to check against the files I downloaded. So I don't know for sure if they would match
+
 */

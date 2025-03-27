@@ -22,6 +22,7 @@
 #include <openssl/md5.h>
 #include <fcntl.h>
 #include <regex.h>
+#include <glob.h>
 
 
  #define BUFSIZE 2048
@@ -201,6 +202,7 @@ char *str2md5(const char *str, int length) {
 }
 
 //Receive data from the server and write to the cache folder
+//TODO: Do NOT CACHE DYNAMIC CONTENT (URL WITH "?" in it);
 int writeFileToCache(FILE *fp, char http_res[BUFSIZE], int client_sockfd){
     int n;
     int content_length;
@@ -387,18 +389,28 @@ long long int grab_content_length_from_file(char url[200]){
     return stat_inst.st_size; 
 }
 
-
-//Currently checks against aliases, and ipv4. TODO: Need to check against h_name and possibly ipv6??
+int my_errfunc(const char *epath, int eerrno) {
+    printf("HELLO IN THERE ERROR\n");
+    fprintf(stderr, "glob error: %s: %s\n", epath, strerror(eerrno));
+    return 1; // Abort glob()
+}
+//Currently checks against aliases, and ipv4. TODO: CLEAN UP THIS FUNCTION. I TRIED SO MANY DIFFERENT METHODS THAT THIS FUNCTION NEEDS TO CLEANED UP
+//TODO:  Need to check against h_name and possibly ipv6??
+//TODO: Still need to build the 403
+//TODO: Syncrhnization will be needed. This will be another lockdown and will cause my performance to suck big time. Need to test with and without block list for performance
+//TODO: Ensure Glob freed
 int check_block_list(struct hostent **req_host) {
     //TODO: compare hostname, aliase, and IP addresses to block lists 
     regex_t reg_exp_object;
     FILE *fp = fopen("./blocklist", "r");
-    char file_line_pattern[400];
+    char file_line_pattern[200];
+    char file_line_pattern_with_directory[400];
     char *alias = "Not Null";
     char **ip_addr;
     int aliases_ele = 0;
-    int ip_ele = 0;
-
+    glob_t glob_obj;
+    int match_result;
+    char ip_buf[400];
 
     if (fp == NULL) {
         printf("blocklist file opening caused error\n");
@@ -410,48 +422,68 @@ int check_block_list(struct hostent **req_host) {
     while (fgets(file_line_pattern, 400, fp) != NULL) {
         file_line_pattern[strcspn(file_line_pattern, "\n")] = '\0'; //\n was causing it not to match
         printf("file_line_pattern: %s\n", file_line_pattern);
-        if (regcomp(&reg_exp_object, file_line_pattern, REG_EXTENDED | REG_ICASE) !=0){
-            printf("There was an error with regcomp using the current file_line_pattern: %s\n", file_line_pattern);
-            continue;
-        }
 
         if ((*req_host)->h_aliases[aliases_ele] != NULL) {
-            // printf("in aliases if statement, meaning h_aliases is not equal to null\n");
             while ((*req_host)->h_aliases[aliases_ele] != NULL){
                 alias = (*req_host)->h_aliases[aliases_ele];
-                if (regexec(&reg_exp_object, alias, 0, NULL, 0) == 0) {
-                        // printf("WE HAVE A MATCH\n");
-                    // TODO: return some value indiciating 403
-                }else {
-                    // printf("NO Match\n");
+                int file_descriptor;
+                char alias_buf[400]; 
+                sprintf(alias_buf, "glob_files/%s", alias);
+                // printf("This is the filename: %s\n", alias_buf);
+                sprintf(file_line_pattern_with_directory, "glob_files/%s", file_line_pattern);
+                // printf("This is file_line_pattern with directiry: %s\n\n", file_line_pattern_with_directory);
 
+                int fd = open(alias_buf, O_CREAT, 0644);                
+                match_result = glob(file_line_pattern_with_directory, 0, NULL, &glob_obj);
+
+                // printf("This is match_result: %d\n", match_result);
+                if (match_result == 0) {
+                    printf("we have a MATCH!!!!\n\n");
+                } else if (match_result == GLOB_NOMATCH) {
+                    printf("This is no match!\n\n");
+                    // fprintf(stderr, "Error: glob() failed with code %d\n", match_result);
                 }
-                // printf("This is the alias: %s\n", alias);
+                close(fd);
                 aliases_ele = aliases_ele + 1;
+
             }
-            printf("out of alias inner while statement\n\n");
-            // regfree(&reg_exp_object);
 
         }
         aliases_ele = 0;
+
 
         if ((*req_host)->h_addr_list != NULL) {
             ip_addr = (*req_host)->h_addr_list;
             while (*ip_addr != NULL){
                 struct in_addr in_addr_for_reg_check;
                 memcpy(&in_addr_for_reg_check.s_addr, *ip_addr, (*req_host)->h_length);
-                if (regexec(&reg_exp_object, inet_ntoa(in_addr_for_reg_check), 0, NULL, 0) == 0) {
-                    printf("ip addr WE HAVE A MATCH\n");
-                    // TODO: return some value indiciating 403
-                }else {
-                    //TODO: Delete this else
-                    printf("ip addr NO Match\n");
+
+                int file_descriptor;
+                char ip_buf[400]; 
+                sprintf(ip_buf, "glob_files/%s", inet_ntoa(in_addr_for_reg_check));
+                // printf("This is ip filenames: %s\n", ip_buf);
+                // sprintf(file_line_pattern_with_directory, "./glob/%s", file_line_pattern);
+                sprintf(file_line_pattern_with_directory, "glob_files/%s", file_line_pattern);
+                // printf("This is file_line_pattern with directiry: %s\n\n", file_line_pattern_with_directory);
+
+                int fd = open(ip_buf, O_CREAT, 0644);                
+                match_result = glob(file_line_pattern_with_directory, 0, NULL, &glob_obj);
+
+                printf("This is match_result: %d\n", match_result);
+                if (match_result == 0) {
+                    printf("we have a MATCH!!!!\n\n");
+                    // globfree(&glob_obj);
+                } else if (match_result == GLOB_NOMATCH) {
+                    printf("This is no match!\n\n");
+                    // fprintf(stderr, "Error: glob() failed with code %d\n", match_result);
                 }
-                //TODO: Research more about pointer addition, a little concerned about double pointer concepts
+                close(fd);
+
+
                 ip_addr = ip_addr + 1;
             }
         }
-        regfree(&reg_exp_object);
+
     }
 
 }
@@ -645,7 +677,8 @@ void *handle_connection(void *p_client_socket, int timeout) {
     if (bind(listenfd, (struct sockaddr *) &serveraddr, sizeof(serveraddr)) < 0) error("ERROR on binding\n");
     listen (listenfd, LISTENQ);
     clientlen = sizeof(clientaddr);
- 
+    mkdir("./glob_files", 0777);
+
     while (1) {
      connfd = accept(listenfd, (struct sockaddr *) &clientaddr, &clientlen );
      printf("\nconnection from %s, port %d\n", inet_ntop(AF_INET, &clientaddr.sin_addr, buf, sizeof(buf)), ntohs(clientaddr.sin_port) );

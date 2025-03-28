@@ -39,6 +39,7 @@
 void signalHandler() {
     printf("SIGNAL HANDLER WORKED\n");
     // pthread_exit(0);
+    rmdir("./glob_files");
     exit(EXIT_FAILURE);
 }
 
@@ -65,7 +66,7 @@ int sendall(int s, char *buf, int len){
 } 
 
 //Verify the HTTP Request Header: Verify double carriage return, No other Method but GET used, and Host Name resolves to IP Address
-int verify_HTTP_Req_Header(char http_req_header[BUFSIZE]) {
+int verify_HTTP_Req_Header(char http_req_header[BUFSIZE], int client_to_proxy_socket) {
     struct hostent *req_host;
     char *http_body_separator;
     char *saveptr_http_header;
@@ -80,13 +81,14 @@ int verify_HTTP_Req_Header(char http_req_header[BUFSIZE]) {
     char *copy_header_line_host;
     char *host_name;
     char *host_exists;
-
+    char response_header[200];
 
     http_body_separator = strstr(http_req_header, "\r\n\r\n");
     if (http_body_separator == NULL){
-        //TODO: Need to put a 400 Bad Request
-        printf("The HTTP Body does not have a double carriage return. Improperly formatted"); 
-        return 1; 
+        sprintf(response_header, "HTTP/1.1 400 Bad Request\r\n\r\n400 Bad Request\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
+        send(client_to_proxy_socket, response_header, strlen(response_header), 0);
+        printf("IN double carriage return issue\n");
+        return -1; 
     }
 
     copy_http_req_header = strdup(http_req_header);//TODO: chek if strdup fails
@@ -94,14 +96,26 @@ int verify_HTTP_Req_Header(char http_req_header[BUFSIZE]) {
     copy_http_header_line = strdup(http_header_line);//TODO: chek if strdup fails
     http_verb =  strtok_r(copy_http_header_line, " ", &saveptr_line_http_header);
     http_url =  strtok_r(NULL, " ", &saveptr_line_http_header); //TODO: Delete ? Unsure if I am checking these
-    http_version =  strtok_r(NULL, " ", &saveptr_line_http_header);// TODO: delete? 
+    http_version =  strtok_r(NULL, " ", &saveptr_line_http_header); 
 
     if (strcasecmp(http_verb, "GET") != 0){
-        printf("The verb was not GET\n");
-        return 1;
+        sprintf(response_header, "HTTP/1.1 400 Bad Request\r\n\r\n400 Bad Request\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
+        send(client_to_proxy_socket, response_header, strlen(response_header), 0);
+        printf("IN GET issue\n");
+
+        return -1;
+    } 
+    if (strcasecmp(http_version, "HTTP/1.1") != 0 && strcasecmp(http_version, "HTTP/1.0") != 0){
+        sprintf(response_header, "HTTP/1.1 400 Bad Request\r\n\r\n400 Bad Request\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
+        send(client_to_proxy_socket, response_header, strlen(response_header), 0);
+        printf("IN HTTP VERSION ISSUE issue\n");
+
+        return -1;
+
     } 
 
     http_header_line = strtok_r(NULL, "\r\n", &saveptr_http_header); 
+
     while (1) {
         host_exists = strstr(http_header_line, "Host:"); //TODO: Concerned if the content-length is spelled differently
         if (host_exists != NULL) break;
@@ -113,20 +127,16 @@ int verify_HTTP_Req_Header(char http_req_header[BUFSIZE]) {
     host_name = strtok_r(NULL, " ", &saveptr_line_host);
     req_host = gethostbyname(host_name); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
     
-    // NOTE: WGET proxy test is messing up becuase its hostname does not have the http in front of it, so I am trying url becuase both curl and wget
-    //have the url. Though I remember this causing some issue when I was doing it via firefox (using url and not host category)
-    // req_host = gethostbyname(http_url); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
+    //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
 
-    if (req_host == NULL) {//if there is no ip address, req_host will be NULL
-        //TODO: NEED to put 404 NOT Found
-        printf("gethostbyname returned NULL.\n");
-        return 1;
+    if (req_host == NULL) {
+        sprintf(response_header, "HTTP/1.1 404 Not Found\r\n\r\n404 Not Found\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
+        send(client_to_proxy_socket, response_header, strlen(response_header), 0);
+        printf("IN HOST NOT FOUND ISSUE\n");
+
+        return -1;
     }
 
-
-    //TODO: http method verification ????
-
-    //TODO: Check for Content Length! Need to do!
 
     return 0;
 }
@@ -140,8 +150,7 @@ int grabContentLength(char http_res_header[BUFSIZE]) {
     char *char_content_length;
     int content_length;
     
-    // TODO: Build a function verifynig the response header???
-    // printf("http_res_header: \n%s\n", http_res_header);
+    //TODO: I am unsure if I need to check for content-length since it is the server coming up with that.
     content_length_exists = strstr(http_res_header, "Content-Length");
     if (content_length_exists == NULL){
         printf("Content-Length Does not Exist.\n"); 
@@ -279,17 +288,20 @@ int grab_http_version(char http_header[BUFSIZE], char **http_version_return) {
     char* http_header_line;
     char *saveptr_line_http_header;
     char *copy_http_header_line; 
-    char *http_verb;
-    char *http_url;
-    char *http_version; 
     copy_http_req_header = strdup(http_header);//TODO: chek if strdup fails
     http_header_line = strtok_r(copy_http_req_header, "\r\n", &saveptr_http_header); //TODO: Check if it fails ?    
     copy_http_header_line = strdup(http_header_line);//TODO: chek if strdup fails
-    http_verb =  strtok_r(copy_http_header_line, " ", &saveptr_line_http_header);
-    http_url =  strtok_r(NULL, " ", &saveptr_line_http_header); //TODO: Delete ? Unsure if I am checking these
-    http_version =  strtok_r(NULL, " ", &saveptr_line_http_header);// TODO: delete? 
-    *http_version_return = http_version; 
-    return 0;
+    strtok_r(copy_http_header_line, " ", &saveptr_line_http_header);
+    strtok_r(NULL, " ", &saveptr_line_http_header); 
+    *http_version_return =  strtok_r(NULL, " ", &saveptr_line_http_header); 
+
+    //TODO: I'm unclear how to test this, testing with curl http version 2 gets me a http header with http/1.1 in the first line, and an additional line where it states http2
+    if (strcasecmp(*http_version_return, "HTTP/1.1") == 0 || strcasecmp(*http_version_return, "HTTP/1.0") == 0) return 0;
+    // printf("The HTTP Version was not 1.1 or 1.0\n");
+    // sprintf(response_header, "HTTP/1.1 400 Bad Request\r\n\r\n400 Bad Request\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
+    // send(client_to_proxy_socket, response_header, strlen(response_header), 0);
+
+    return -1;
 }
 
 int set_status_code() {
@@ -353,9 +365,12 @@ int determine_connection_status(char http_client_req_header[BUFSIZE], char *http
         printf("Connections status does not Exist.\n"); 
         if (strcasecmp(http_version, "HTTP/1.1") == 0) {
             *connection_status = "Keep-Alive";
-        }else {
+        }else if (strcasecmp(http_version, "HTTP/1.0") == 0) { //TODO: Need to ask the professor on what HTTP versions are allowed to use and which are not
             *connection_status = "Close";
+        } else {
+            return -1;
         }
+
         return 0; 
     }
 
@@ -368,7 +383,6 @@ int determine_connection_status(char http_client_req_header[BUFSIZE], char *http
         http_header_line = strtok_r(NULL, "\r\n", &saveptr_http__res_header); //TODO: Check if it fails ?    
     }
 
-    //TODO: Need to build in a check for if the connection status is not HTTP/1.1 or HTTP/1.0 But that probably shouldn't be here, it should be in my gett http function
     *connection_status  = strtok_r(http_header_line, " ", &saveptr_connection_status_line);
     *connection_status  = strtok_r(NULL, " ", &saveptr_connection_status_line);
     return 0;
@@ -402,7 +416,7 @@ int my_errfunc(const char *epath, int eerrno) {
 //TODO: Ensure Glob freed
 //TODO: With Block list, there may be a glitch were we have a match becuase it is comparing if there is a match for every file name in the file system ()
 ///         TODO: Potentional solutions include delteing each file after the check is done but that would require a a huge synch lockdown. Yikes
-int check_block_list(struct hostent **req_host) {
+int check_block_list(struct hostent **req_host, int client_to_proxy_socket) {
     //TODO: compare hostname, aliase, and IP addresses to block lists 
     regex_t reg_exp_object;
     FILE *fp = fopen("./blocklist", "r");
@@ -414,6 +428,7 @@ int check_block_list(struct hostent **req_host) {
     glob_t glob_obj;
     int match_result;
     char ip_buf[400];
+    char response_header[200];
 
     if (fp == NULL) {
         printf("blocklist file opening caused error\n");
@@ -438,12 +453,23 @@ int check_block_list(struct hostent **req_host) {
 
                 int fd = open(alias_buf, O_CREAT, 0644);                
                 match_result = glob(file_line_pattern_with_directory, 0, NULL, &glob_obj);
-
+                printf("for posterity\n");
                 // printf("This is match_result: %d\n", match_result);
                 if (match_result == 0) {
-                    printf("we have a MATCH!!!!\n\n");
+                    printf("we have a match on the block list. Sending 403 forbidden\n");
+                    sprintf(response_header, "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n403 Forbidden\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
+                    send(client_to_proxy_socket, response_header, strlen(response_header), 0);
+                    close(fd);
+                    remove(alias_buf);
+                    globfree(&glob_obj);
+                    printf("This should print\n");
+                    return -1;
+                    printf("This should not print\n");
+            
                 } else if (match_result == GLOB_NOMATCH) {
-                    printf("This is no match!\n\n");
+                    printf("This is no match!\n");
+                    remove(alias_buf);
+
                     // fprintf(stderr, "Error: glob() failed with code %d\n", match_result);
                 }
                 close(fd);
@@ -474,21 +500,28 @@ int check_block_list(struct hostent **req_host) {
 
                 printf("This is match_result: %d\n", match_result);
                 if (match_result == 0) {
-                    printf("we have a MATCH!!!!\n\n");
-                    // globfree(&glob_obj);
+                    printf("we have a match on the block list. Sending 403 forbidden\n");
+                    sprintf(response_header, "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n403 Forbidden\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
+                    send(client_to_proxy_socket, response_header, strlen(response_header), 0);
+                    close(fd);
+                    remove(ip_buf);
+                    globfree(&glob_obj);
+                    return -1;
                 } else if (match_result == GLOB_NOMATCH) {
                     printf("This is no match!\n\n");
+                    remove(ip_buf);
+
                     // fprintf(stderr, "Error: glob() failed with code %d\n", match_result);
                 }
                 close(fd);
-
-
                 ip_addr = ip_addr + 1;
             }
         }
 
-    }
 
+
+    }
+    globfree(&glob_obj);
 }
 
 //CITATION: https://stackoverflow.com/questions/13482519/c-find-all-occurrences-of-substring
@@ -550,8 +583,12 @@ int build_http_response_for_client(char http_client_req_header[BUFSIZE], char re
     long long int content_length;
 
     //TODO: Need to make sure error checking is happening in all these functions
-    grab_http_version(http_client_req_header, &http_version);
-    grab_url(http_client_req_header, url);
+   if (grab_http_version(http_client_req_header, &http_version) == -1){
+    //TODO: Send 400
+   }
+    if (grab_url(http_client_req_header, url) == -1) {
+
+    }
     grab_file_type(file_type, url);
     set_response_content_type(file_type, content_type);
     determine_connection_status(http_client_req_header, http_version, &http_connection_status);
@@ -609,22 +646,26 @@ void *handle_connection(void *p_client_socket, int timeout) {
     if (n < 0) error("ERROR in recvfrom\n");
     // printf("Buf: \n%s\n", buf);
 
-    if (verify_HTTP_Req_Header(buf) !=0) {
+    if (verify_HTTP_Req_Header(buf, client_to_proxy_socket) !=0) {
         printf("Verify HTTP Req Header had some error\n");
         error("HTTP Verification Failed");
-        // return 1;
+        return NULL;
     }
 
-    printf("HTTP REQUEST in HANDLE CONNECTION: \n%s\n", buf);
+    // printf("HTTP REQUEST in HANDLE CONNECTION: \n%s\n", buf);
     // grab_http_version(buf);
     // copy_server_response_http_header = strdup(buf);    //Actually, buf is the client http request I think rather than the server response right now
     http_req_header_client = strdup(buf);    //Actually, buf is the client http request I think rather than the server response right now
-    // printf("client http req header: \n%s\n", http_req_header_client); //Maybe I should delete these two lines since I'm not doing anything with http req header client or maybe I should use it instead of buf in get_host_byName
+    printf("client http req header: \n%s\n", http_req_header_client); //Maybe I should delete these two lines since I'm not doing anything with http req header client or maybe I should use it instead of buf in get_host_byName
     if (grab_host_by_name(buf, &req_host) == -1 ){
         //TODO: Return 403 b/c we'll check the blocklist file there
         //NOTE: I actually don't think we should do that.
     }
-    // check_block_list(&req_host);
+    if (check_block_list(&req_host, client_to_proxy_socket) == -1){
+        printf("NEED TO find a way to end program? No b/c in threads, main won't end, but thread should end?\n");
+        close(client_to_proxy_socket);
+        return NULL;
+    }
     //TODO: Build in functionality for the user setting the port
     portno = 80; 
     proxy_to_server_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -733,7 +774,6 @@ void *handle_connection(void *p_client_socket, int timeout) {
     listen (listenfd, LISTENQ);
     clientlen = sizeof(clientaddr);
     mkdir("./glob_files", 0777);
-
     while (1) {
      connfd = accept(listenfd, (struct sockaddr *) &clientaddr, &clientlen );
      printf("\nconnection from %s, port %d\n", inet_ntop(AF_INET, &clientaddr.sin_addr, buf, sizeof(buf)), ntohs(clientaddr.sin_port) );
@@ -748,7 +788,7 @@ void *handle_connection(void *p_client_socket, int timeout) {
      // pthread_detach(t);
     }
  
- 
+    rmdir("./glob_files");
     return 0;
  
     /* WHEN IT IS PTHREAD TIME
@@ -775,12 +815,16 @@ cc -Wextra proxy_server.c -o proxy_server -lcrypto
 
 Tests: 
 1) curl -v -x localhost:2000 http://httpforever.com
-2) curl -v -x localhost:2000 http://netsys.cs.colorado.edu/
-2) wget -e use_proxy=yes -e http_proxy=localhost:2000 http://httpforever.com
+  i) Tested my proxy server on a commerical http website
+2) nc localhost 2000 < no_carriage_return_http_req
+  i) For testing the a bad http request (no double carriage return)
+3) curl -v -x localhost:2000 http://netsys.cs.colorado.edu/
+3) TODO: NEED TO TEST GET ISSUE
+4) wget -e use_proxy=yes -e http_proxy=localhost:2000 http://httpforever.com
+
+
 
 TODO: Testing Thoughts
-- I'm concerned that I have no files to check against the files I downloaded. So I don't know for sure if they would match
-- Need to ask the professor about testing no https vs http requests and what are some examples of being able to test on http examples
 
 
 */

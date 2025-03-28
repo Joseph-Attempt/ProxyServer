@@ -212,6 +212,7 @@ int writeFileToCache(FILE *fp, char http_res[BUFSIZE], int client_sockfd){
     char remainder_of_body[BUFSIZE];
 
     n =  recv(client_sockfd, http_res, BUFSIZE, 0);
+    // printf("THIS IS HTTP RESPONSE: \n%s\n", http_res);
     content_length = grabContentLength(http_res);
     http_res_ends = strstr(http_res, "\r\n\r\n");
     http_res_header_bytes = http_res_ends + 4 - http_res;
@@ -399,6 +400,8 @@ int my_errfunc(const char *epath, int eerrno) {
 //TODO: Still need to build the 403
 //TODO: Syncrhnization will be needed. This will be another lockdown and will cause my performance to suck big time. Need to test with and without block list for performance
 //TODO: Ensure Glob freed
+//TODO: With Block list, there may be a glitch were we have a match becuase it is comparing if there is a match for every file name in the file system ()
+///         TODO: Potentional solutions include delteing each file after the check is done but that would require a a huge synch lockdown. Yikes
 int check_block_list(struct hostent **req_host) {
     //TODO: compare hostname, aliase, and IP addresses to block lists 
     regex_t reg_exp_object;
@@ -487,6 +490,55 @@ int check_block_list(struct hostent **req_host) {
     }
 
 }
+
+//CITATION: https://stackoverflow.com/questions/13482519/c-find-all-occurrences-of-substring
+//The citation above is somewhat helpful, really just for using addition of the length to move past the first occurence
+//TODO: I can grab all the links, need to create http requests for them all and grab the files for prefetch
+int searching_for_links(char full_path[400]) {
+    char *href_text = "href=\"";
+    char *quotation_text = "\"";
+    char file_content[64000];
+    FILE *fp = fopen(full_path, "r");
+    int bytes_read;
+    int byte_found_href;
+    int byte_found_ending_quotation_mark_for_href;
+    int copy_link_bytes;
+    char *find_href;
+    char *find_quotation_after_href;
+    char link_string[100];
+
+
+    if (fp == NULL) {
+        printf("Error Opening File for searching_for_links Function\n");
+        return -1; 
+    }
+
+    //TODO: Consider issue if link i ssplit between one fgets and another??
+    while (1){
+        bytes_read = fread(file_content, 1, 64000, fp);
+        if (bytes_read < 1) {
+          break;
+        }
+        find_href = file_content;
+        // find_href = strstr(find_href, href_text);
+        while(1) {
+            find_href = strstr(find_href, href_text);
+            if (find_href == NULL) break;
+            byte_found_href = find_href - file_content;
+
+            //TODO: Need to figure out if I should only be reading links that start with http.
+            find_href += strlen(href_text);
+            find_quotation_after_href = strstr(find_href, quotation_text);
+            byte_found_ending_quotation_mark_for_href = find_quotation_after_href - file_content;
+            copy_link_bytes = byte_found_ending_quotation_mark_for_href - byte_found_href - strlen(href_text);
+            strncpy(link_string, find_href, copy_link_bytes);
+            printf("I am printing the link_string: \n%s\n", link_string);
+        }
+        bzero(file_content, 64000);
+      } 
+    return 0;
+}
+
 //TODO: full_path parameter might need to be filename. I'm undecided. Or URL
 int build_http_response_for_client(char http_client_req_header[BUFSIZE], char response_header[BUFSIZE]){
     //I think everything I need is in the client req header. B/c from there, I should be able to get the f
@@ -563,7 +615,7 @@ void *handle_connection(void *p_client_socket, int timeout) {
         // return 1;
     }
 
-    // printf("Buf: \n%s\n", buf);
+    printf("HTTP REQUEST in HANDLE CONNECTION: \n%s\n", buf);
     // grab_http_version(buf);
     // copy_server_response_http_header = strdup(buf);    //Actually, buf is the client http request I think rather than the server response right now
     http_req_header_client = strdup(buf);    //Actually, buf is the client http request I think rather than the server response right now
@@ -572,7 +624,7 @@ void *handle_connection(void *p_client_socket, int timeout) {
         //TODO: Return 403 b/c we'll check the blocklist file there
         //NOTE: I actually don't think we should do that.
     }
-    check_block_list(&req_host);
+    // check_block_list(&req_host);
     //TODO: Build in functionality for the user setting the port
     portno = 80; 
     proxy_to_server_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -590,6 +642,7 @@ void *handle_connection(void *p_client_socket, int timeout) {
         close(proxy_to_server_socket);
         exit(EXIT_FAILURE);
     }
+
     grab_url(buf,url);
     grab_file_type(file_type, url);
     sendall(proxy_to_server_socket, buf, BUFSIZE);
@@ -598,6 +651,7 @@ void *handle_connection(void *p_client_socket, int timeout) {
     md5_file_name = str2md5(url, strlen(url));
     sprintf(full_path, "./cache/%s", md5_file_name);
     //TODO: When Multi-Threading, will need to look portions of this, probably all of this if else chunk
+    //TODO fix this if to only have the if, no else
     if (access(full_path, F_OK) == 0){
         time_since_creation = get_time_since_creation(full_path);
         if (time_since_creation < timeout){
@@ -614,9 +668,10 @@ void *handle_connection(void *p_client_socket, int timeout) {
 
     bzero(buf, BUFSIZE); 
     build_http_response_for_client(http_req_header_client, buf);
-
+    
+    //TODO: The structure of how I call this will have to change with multi threading
+    // searching_for_links(full_path);
     //TODO: relay the results for the server (socket2) to the client (socket1)
-
     fp = fopen(full_path, "r"); //Checking for file existense and readability happens in buildHTTPResponseHeader
     //sending http response header
     n = send(client_to_proxy_socket, buf, strlen(buf), 0);
@@ -720,9 +775,12 @@ cc -Wextra proxy_server.c -o proxy_server -lcrypto
 
 Tests: 
 1) curl -v -x localhost:2000 http://httpforever.com
+2) curl -v -x localhost:2000 http://netsys.cs.colorado.edu/
 2) wget -e use_proxy=yes -e http_proxy=localhost:2000 http://httpforever.com
 
 TODO: Testing Thoughts
 - I'm concerned that I have no files to check against the files I downloaded. So I don't know for sure if they would match
+- Need to ask the professor about testing no https vs http requests and what are some examples of being able to test on http examples
+
 
 */

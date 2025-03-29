@@ -61,6 +61,7 @@ int sendall(int s, char *buf, int len){
         total += n;
         bytesleft -= n;
     }
+    printf("in sendall, n: %d\n", n);
     if (n == -1) return -1;
     return total;
 } 
@@ -102,6 +103,7 @@ int verify_HTTP_Req_Header(char http_req_header[BUFSIZE], int client_to_proxy_so
         sprintf(response_header, "HTTP/1.1 400 Bad Request\r\n\r\n400 Bad Request\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
         send(client_to_proxy_socket, response_header, strlen(response_header), 0);
         printf("IN GET issue\n");
+        printf("http_verb: %s\n", http_verb);
 
         return -1;
     } 
@@ -169,6 +171,7 @@ int grabContentLength(char http_res_header[BUFSIZE]) {
     char_content_length = strtok_r(http_header_line, " ", &saveptr_content_length_line);
     char_content_length = strtok_r(NULL, " ", &saveptr_content_length_line);
     content_length = atoi(char_content_length);
+    printf("content-length: %d\n", content_length);
     return content_length;
 }
 
@@ -393,14 +396,16 @@ long long int grab_content_length_from_file(char url[200]){
     char full_path[400];
     md5_file_name = str2md5(url, strlen(url));
     struct stat stat_inst;
-
+    printf("Full_path Before sprintf: %s\n", full_path);
     sprintf(full_path, "./cache/%s", md5_file_name);    
+    printf("Full_path after sprintf: %s\n", full_path);
     if (stat(full_path, &stat_inst) == -1) {
         printf("GETTING FILE CONTENT WITH STAT DID NOT WORK");
+        printf("errno: %d\n", errno); // Print the errno value
         return -1; // Indicate an error
     }
     
-
+    printf("stat_inst.st_size: %ld\nn", stat_inst.st_size);
     return stat_inst.st_size; 
 }
 
@@ -439,7 +444,7 @@ int check_block_list(struct hostent **req_host, int client_to_proxy_socket) {
 
     while (fgets(file_line_pattern, 400, fp) != NULL) {
         file_line_pattern[strcspn(file_line_pattern, "\n")] = '\0'; //\n was causing it not to match
-        printf("file_line_pattern: %s\n", file_line_pattern);
+        // printf("file_line_pattern: %s\n", file_line_pattern);
 
         if ((*req_host)->h_aliases[aliases_ele] != NULL) {
             while ((*req_host)->h_aliases[aliases_ele] != NULL){
@@ -453,21 +458,21 @@ int check_block_list(struct hostent **req_host, int client_to_proxy_socket) {
 
                 int fd = open(alias_buf, O_CREAT, 0644);                
                 match_result = glob(file_line_pattern_with_directory, 0, NULL, &glob_obj);
-                printf("for posterity\n");
+                // printf("for posterity\n");
                 // printf("This is match_result: %d\n", match_result);
                 if (match_result == 0) {
-                    printf("we have a match on the block list. Sending 403 forbidden\n");
+                    // printf("we have a match on the block list. Sending 403 forbidden\n");
                     sprintf(response_header, "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n403 Forbidden\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
                     send(client_to_proxy_socket, response_header, strlen(response_header), 0);
                     close(fd);
                     remove(alias_buf);
                     globfree(&glob_obj);
-                    printf("This should print\n");
+                    // printf("This should print\n");
                     return -1;
-                    printf("This should not print\n");
+                    // printf("This should not print\n");
             
                 } else if (match_result == GLOB_NOMATCH) {
-                    printf("This is no match!\n");
+                    // printf("This is no match!\n");
                     remove(alias_buf);
 
                     // fprintf(stderr, "Error: glob() failed with code %d\n", match_result);
@@ -498,9 +503,9 @@ int check_block_list(struct hostent **req_host, int client_to_proxy_socket) {
                 int fd = open(ip_buf, O_CREAT, 0644);                
                 match_result = glob(file_line_pattern_with_directory, 0, NULL, &glob_obj);
 
-                printf("This is match_result: %d\n", match_result);
+                // printf("This is match_result: %d\n", match_result);
                 if (match_result == 0) {
-                    printf("we have a match on the block list. Sending 403 forbidden\n");
+                    // printf("we have a match on the block list. Sending 403 forbidden\n");
                     sprintf(response_header, "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n403 Forbidden\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
                     send(client_to_proxy_socket, response_header, strlen(response_header), 0);
                     close(fd);
@@ -508,7 +513,7 @@ int check_block_list(struct hostent **req_host, int client_to_proxy_socket) {
                     globfree(&glob_obj);
                     return -1;
                 } else if (match_result == GLOB_NOMATCH) {
-                    printf("This is no match!\n\n");
+                    // printf("This is no match!\n\n");
                     remove(ip_buf);
 
                     // fprintf(stderr, "Error: glob() failed with code %d\n", match_result);
@@ -593,6 +598,7 @@ int build_http_response_for_client(char http_client_req_header[BUFSIZE], char re
     set_response_content_type(file_type, content_type);
     determine_connection_status(http_client_req_header, http_version, &http_connection_status);
     content_length = grab_content_length_from_file(url);
+    printf("Content-length got from file in Build_http_responseforClient: %lld\n", content_length);
 
 
     //TODO: Ensure other responses are built when error occurs (400 or 404)
@@ -613,6 +619,7 @@ Content-Length:<> # Numeric value of the number of bytes of <file contents>
 }
 
 void *handle_connection(void *p_client_socket, int timeout) {
+
     int client_to_proxy_socket = * ((int*)p_client_socket);
     free(p_client_socket);
 
@@ -718,24 +725,35 @@ void *handle_connection(void *p_client_socket, int timeout) {
     n = send(client_to_proxy_socket, buf, strlen(buf), 0);
     
     while (1){
-      bytes_read = fread(buf, 1, BUFSIZE, fp);
+      printf("At top of while loop\n");
+    //   bytes_read = fread(buf, 1, BUFSIZE, fp);
+      bytes_read = fread(buf, 1, strlen(buf), fp);
+      printf("After bytes read: bytes_read: %d\n", bytes_read);
       if (bytes_read < 1) {
+        printf("in whle break\n");
         break;
       }
+      printf("after if bytes read\n");
       //if I do BUFSIZE in sendall and do a verbose curl, I get * Excess found in a read: excess = 1020, size = 5124, maxdownload = 5124, bytecount = 0
       //If I do strlen(buf), I do not get that note.
       //I believe this means the programs I am using to test are cutting off unrelated bytes. I'm not sure I hould worry about this given my content lenght cuts off excess bytes 
       if (sendall(client_to_proxy_socket, buf, BUFSIZE) == -1) {
     //   if (sendall(client_to_proxy_socket, buf, strlen(buf) == -1) {
-            printf("Error in sending file data");
+            printf("Error in sending file data\n");
       }
       bzero(buf, BUFSIZE);
+      printf("Still in while loop\n");
     } 
-    
+    printf("Before close proxy to server\n");
+
     close(proxy_to_server_socket);
+    printf("Before close client to proxy\n");
+
     close(client_to_proxy_socket);
     // fclose(fp); //unsure if this should be turned back on, 
+    printf("Before bzero\n");
     bzero(buf, BUFSIZE);
+    printf("at the end of handle connection and returning null\n");
     return NULL;
 }
 
@@ -769,26 +787,25 @@ void *handle_connection(void *p_client_socket, int timeout) {
     serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
     serveraddr.sin_port = htons((unsigned short)portno);
  
- 
     if (bind(listenfd, (struct sockaddr *) &serveraddr, sizeof(serveraddr)) < 0) error("ERROR on binding\n");
     listen (listenfd, LISTENQ);
     clientlen = sizeof(clientaddr);
     mkdir("./glob_files", 0777);
+
     while (1) {
-     connfd = accept(listenfd, (struct sockaddr *) &clientaddr, &clientlen );
-     printf("\nconnection from %s, port %d\n", inet_ntop(AF_INET, &clientaddr.sin_addr, buf, sizeof(buf)), ntohs(clientaddr.sin_port) );
-     //CITATION: https://www.youtube.com/watch?v=Pg_4Jz8ZIH4
-     int *pclient = malloc(sizeof(int));
-     *pclient = connfd;
-     handle_connection(pclient, atoi(argv[2]));
-    
-    
-     // pthread_t t;
-     // pthread_create(&t, NULL, handle_connection, pclient);
-     // pthread_detach(t);
+        connfd = accept(listenfd, (struct sockaddr *) &clientaddr, &clientlen );
+        printf("\nconnection from %s, port %d\n", inet_ntop(AF_INET, &clientaddr.sin_addr, buf, sizeof(buf)), ntohs(clientaddr.sin_port) );
+        //CITATION: https://www.youtube.com/watch?v=Pg_4Jz8ZIH4
+        int *pclient = malloc(sizeof(int));
+        *pclient = connfd;
+        handle_connection(pclient, atoi(argv[2]));
+        // pthread_t t;
+        // pthread_create(&t, NULL, handle_connection, pclient);
+        // pthread_detach(t);
     }
  
     rmdir("./glob_files");
+    printf("retruning from main\n");
     return 0;
  
     /* WHEN IT IS PTHREAD TIME
@@ -818,10 +835,41 @@ Tests:
   i) Tested my proxy server on a commerical http website
 2) nc localhost 2000 < no_carriage_return_http_req
   i) For testing the a bad http request (no double carriage return)
-3) curl -v -x localhost:2000 http://netsys.cs.colorado.edu/
-3) TODO: NEED TO TEST GET ISSUE
-4) wget -e use_proxy=yes -e http_proxy=localhost:2000 http://httpforever.com
+3) Curling individual files on netsys. TODO: Allow of the below correctly download the file (checked with cmp -b) but invalid content-length after the first request ()
+    i) curl -v -x localhost:2000 http://netsys.cs.colorado.edu/
+    ii) curl -v -x localhost:2000  http://netsys.cs.colorado.edu/images/wine3.jpg           
+    
+    TODO for ii): This causes the single process program to end. Need to find out why
+    SOLVED: I was breaking my sending while loop with bytes_read being less than 1. But I was checking it like 
+        bytes_read = fread(buf, 1, BUFSIZE, fp);
+        Instead of   
+        bytes_read = fread(buf, 1, strlen(buf), fp); //THIS SOLVED IT
+    This meant that bytes_read was reading 2048 (BUFSIZE) of emptiness (null) and kept executing beyond what I wanted it to. 
+    
+    iii) curl -v -x localhost:2000  http://netsys.cs.colorado.edu/images/apple_ex.png
 
+    TODO for iii) after multiple calls of iii and iv, eventually the program ends or getting content length (grab_content_length_From_file gives an error becuase stat() errors)
+    I'm unsure what is cuasing it becuase rapid calls don't have this problem. I think it may be an issue with my main while loop and not cleaning the variables
+
+    iv) curl -v -x localhost:2000 http://netsys.cs.colorado.edu/images/exam.gif
+    v) curl -v -x localhost:2000 http://netsys.cs.colorado.edu/files/text1.txt
+
+
+4) curl -d "num=2" -x localhost:2000 http://httpforever.com
+    i) tested a method other than GET. Error handling worked correctly. 
+
+5) curl -x localhost:2000 www.linkedin.com
+  i) tested blocklist feature for alias *.linkedin.com
+6) curl -x localhost:2000 www.yahoo.com
+    i) tested blocklist feature for ip address 69.147.71.[0-2][0-9][0-9]
+
+-) wget -e use_proxy=yes -e http_proxy=localhost:2000 http://httpforever.com
+
+
+-) blocklist file looks like (no tabs): 
+    *.google.com
+    *.linkedin.com
+    69.147.71.[0-2][0-9][0-9]
 
 
 TODO: Testing Thoughts

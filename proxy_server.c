@@ -50,6 +50,7 @@ void error(char *msg) {
 
 
 
+
 //CITITATION: BEEJ GUIDE 7.4 sendall function
 int sendall(int s, char *buf, int len){
     int total = 0;        
@@ -61,7 +62,6 @@ int sendall(int s, char *buf, int len){
         total += n;
         bytesleft -= n;
     }
-    printf("in sendall, n: %d\n", n);
     if (n == -1) return -1;
     return total;
 } 
@@ -130,7 +130,7 @@ int verify_HTTP_Req_Header(char http_req_header[BUFSIZE], int client_to_proxy_so
     req_host = gethostbyname(host_name); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
     
     //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
-
+    printf("http_req_header in verifyHTTPREQHEADER: \n%s\n", http_req_header);
     if (req_host == NULL) {
         sprintf(response_header, "HTTP/1.1 404 Not Found\r\n\r\n404 Not Found\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
         send(client_to_proxy_socket, response_header, strlen(response_header), 0);
@@ -151,6 +151,7 @@ int grabContentLength(char http_res_header[BUFSIZE]) {
     char *saveptr_content_length_line;
     char *char_content_length;
     int content_length;
+    
     
     //TODO: I am unsure if I need to check for content-length since it is the server coming up with that.
     content_length_exists = strstr(http_res_header, "Content-Length");
@@ -223,14 +224,17 @@ int writeFileToCache(FILE *fp, char http_res[BUFSIZE], int client_sockfd){
     char *http_res_ends;
     char remainder_of_body[BUFSIZE];
 
+    
     n =  recv(client_sockfd, http_res, BUFSIZE, 0);
-    // printf("THIS IS HTTP RESPONSE: \n%s\n", http_res);
+    printf("THIS IS HTTP RESPONSE: \n%s\n", http_res);
     content_length = grabContentLength(http_res);
+    printf("this is content_length in writeFileToCache, content_length: %d\n", content_length);
     http_res_ends = strstr(http_res, "\r\n\r\n");
     http_res_header_bytes = http_res_ends + 4 - http_res;
     http_res_body_bytes_recv = n - http_res_header_bytes;
     fwrite(http_res + http_res_header_bytes, 1, (n - http_res_header_bytes), fp);
-
+    
+    bzero(http_res, BUFSIZE);
     while (http_res_body_bytes_recv < content_length) {
         n =  recv(client_sockfd, http_res, BUFSIZE, 0);
         if ( (n+ http_res_body_bytes_recv) > content_length) {
@@ -246,6 +250,7 @@ int writeFileToCache(FILE *fp, char http_res[BUFSIZE], int client_sockfd){
             // printf("content_length: %d, n: %d, http_res_header_bytes: %d, http_res_body_bytes_recv: %d\n", content_length,n, http_res_header_bytes, http_res_body_bytes_recv);
             // printf("ELSE AFTER RECV:BUF: \n%s\n", buf); 
         }
+        bzero(http_res, BUFSIZE);
     }
 
     if (fclose(fp) !=0) printf("Error closing the file\n");
@@ -339,6 +344,8 @@ int set_response_content_type(char file_type[FILETYPESIZE], char content_type[10
 int grab_file_type(char file_type[20], char url[200]) {
     //Citation: https://stackoverflow.com/questions/5309471/getting-file-extension-in-c
     char *file_at_end_of_url = strrchr(url, '/');
+    printf("In grabFile_type: url: %s\n", url);
+    printf("In grabFile_type: file_at_end_of_url: %s\n", file_at_end_of_url);
     char *ext;
     // if (file_at_end_of_url == NULL) Note: Consider Error checking here if I don't put the check in http verification function
     //We are assuming url is fully formed, so if there is nothing at the end of the last slash then the assumption is that the request is for an index.html
@@ -346,6 +353,7 @@ int grab_file_type(char file_type[20], char url[200]) {
         strcpy(file_type, "html");
     }else { 
         ext = strrchr(file_at_end_of_url, '.');
+        printf("in grabfiletype, ext: %s\n", ext);
         if (ext) {
             strcpy(file_type, ext +1);       
         }   
@@ -391,13 +399,16 @@ int determine_connection_status(char http_client_req_header[BUFSIZE], char *http
     return 0;
 }
 
-long long int grab_content_length_from_file(char url[200]){
-    char *md5_file_name;
-    char full_path[400];
-    md5_file_name = str2md5(url, strlen(url));
+// long long int grab_content_length_from_file(char url[200], ){
+long long int grab_content_length_from_file(char full_path[400]){
+    // char *md5_file_name;
+    // char full_path[400];
+    // printf("in grab_content_Length_from_file , url: %s\n", url);
+    // md5_file_name = str2md5(url, strlen(url));
+    
     struct stat stat_inst;
-    printf("Full_path Before sprintf: %s\n", full_path);
-    sprintf(full_path, "./cache/%s", md5_file_name);    
+    // printf("Full_path Before sprintf: %s\n", full_path);
+    // sprintf(full_path, "./cache/%s", md5_file_name);    
     printf("Full_path after sprintf: %s\n", full_path);
     if (stat(full_path, &stat_inst) == -1) {
         printf("GETTING FILE CONTENT WITH STAT DID NOT WORK");
@@ -409,11 +420,6 @@ long long int grab_content_length_from_file(char url[200]){
     return stat_inst.st_size; 
 }
 
-int my_errfunc(const char *epath, int eerrno) {
-    printf("HELLO IN THERE ERROR\n");
-    fprintf(stderr, "glob error: %s: %s\n", epath, strerror(eerrno));
-    return 1; // Abort glob()
-}
 //Currently checks against aliases, and ipv4. TODO: CLEAN UP THIS FUNCTION. I TRIED SO MANY DIFFERENT METHODS THAT THIS FUNCTION NEEDS TO CLEANED UP
 //TODO:  Need to check against h_name and possibly ipv6??
 //TODO: Still need to build the 403
@@ -440,7 +446,7 @@ int check_block_list(struct hostent **req_host, int client_to_proxy_socket) {
         return -1; 
     }
 
-    printf("*req_host->h_name: %s\n", (*req_host)->h_name);
+    // printf("*req_host->h_name: %s\n", (*req_host)->h_name);
 
     while (fgets(file_line_pattern, 400, fp) != NULL) {
         file_line_pattern[strcspn(file_line_pattern, "\n")] = '\0'; //\n was causing it not to match
@@ -578,7 +584,7 @@ int searching_for_links(char full_path[400]) {
 }
 
 //TODO: full_path parameter might need to be filename. I'm undecided. Or URL
-int build_http_response_for_client(char http_client_req_header[BUFSIZE], char response_header[BUFSIZE]){
+int build_http_response_for_client(char http_client_req_header[BUFSIZE], char response_header[BUFSIZE], char full_path[400]){
     //I think everything I need is in the client req header. B/c from there, I should be able to get the f
     char *http_version;
     char file_type[20];
@@ -586,18 +592,26 @@ int build_http_response_for_client(char http_client_req_header[BUFSIZE], char re
     char content_type[100];
     char *http_connection_status;
     long long int content_length;
+    
+    bzero(url, 200);
+    bzero(file_type, 20);
+    bzero(content_type, 100);
 
     //TODO: Need to make sure error checking is happening in all these functions
-   if (grab_http_version(http_client_req_header, &http_version) == -1){
+    //TODO: I already do this in verify_http request method. Need to clean these up.
+    if (grab_http_version(http_client_req_header, &http_version) == -1){
     //TODO: Send 400
    }
     if (grab_url(http_client_req_header, url) == -1) {
 
     }
+    printf("build_http_response, before grab_file_type url: %s\n", url);
     grab_file_type(file_type, url);
     set_response_content_type(file_type, content_type);
     determine_connection_status(http_client_req_header, http_version, &http_connection_status);
-    content_length = grab_content_length_from_file(url);
+    printf("build_http_response, before grab_content_length_from_file url: %s\n", url);
+    // content_length = grab_content_length_from_file(url);
+    content_length = grab_content_length_from_file(full_path);
     printf("Content-length got from file in Build_http_responseforClient: %lld\n", content_length);
 
 
@@ -693,11 +707,13 @@ void *handle_connection(void *p_client_socket, int timeout) {
 
     grab_url(buf,url);
     grab_file_type(file_type, url);
+    printf("The client http being sent to the server: \n%s\n", buf);
     sendall(proxy_to_server_socket, buf, BUFSIZE);
     bzero(buf, BUFSIZE); 
-
+    printf("in handle connection, url: %s\n", url);
     md5_file_name = str2md5(url, strlen(url));
     sprintf(full_path, "./cache/%s", md5_file_name);
+    // printf("Bytes of Full_path after md5_file_name and before writeFiteTOCache\n");
     //TODO: When Multi-Threading, will need to look portions of this, probably all of this if else chunk
     //TODO fix this if to only have the if, no else
     if (access(full_path, F_OK) == 0){
@@ -707,53 +723,47 @@ void *handle_connection(void *p_client_socket, int timeout) {
         } else {
             remove(full_path);
             fp = fopen(full_path, "w");
+            printf("file already created but timeout, It did write\n");
             writeFileToCache(fp, buf, proxy_to_server_socket);
         }
     }else {
         fp = fopen(full_path, "w");
+        printf("file does not exist, It did write\n");
         writeFileToCache(fp, buf, proxy_to_server_socket);
     }
 
     bzero(buf, BUFSIZE); 
-    build_http_response_for_client(http_req_header_client, buf);
+    build_http_response_for_client(http_req_header_client, buf, full_path);
     
     //TODO: The structure of how I call this will have to change with multi threading
     // searching_for_links(full_path);
     //TODO: relay the results for the server (socket2) to the client (socket1)
+    // printf("Bytes of Full_path after md5_file_name and after writeFiteTOCache, but right before fopen to read\n");
     fp = fopen(full_path, "r"); //Checking for file existense and readability happens in buildHTTPResponseHeader
     //sending http response header
     n = send(client_to_proxy_socket, buf, strlen(buf), 0);
     
     while (1){
-      printf("At top of while loop\n");
     //   bytes_read = fread(buf, 1, BUFSIZE, fp);
       bytes_read = fread(buf, 1, strlen(buf), fp);
-      printf("After bytes read: bytes_read: %d\n", bytes_read);
-      if (bytes_read < 1) {
-        printf("in whle break\n");
-        break;
-      }
-      printf("after if bytes read\n");
+    //   if (bytes_read < 1) {
+    //     printf("in whle break\n");
+    //     // break;
+    //   }
       //if I do BUFSIZE in sendall and do a verbose curl, I get * Excess found in a read: excess = 1020, size = 5124, maxdownload = 5124, bytecount = 0
       //If I do strlen(buf), I do not get that note.
       //I believe this means the programs I am using to test are cutting off unrelated bytes. I'm not sure I hould worry about this given my content lenght cuts off excess bytes 
       if (sendall(client_to_proxy_socket, buf, BUFSIZE) == -1) {
     //   if (sendall(client_to_proxy_socket, buf, strlen(buf) == -1) {
             printf("Error in sending file data\n");
+            break;
       }
       bzero(buf, BUFSIZE);
-      printf("Still in while loop\n");
     } 
-    printf("Before close proxy to server\n");
-
     close(proxy_to_server_socket);
-    printf("Before close client to proxy\n");
-
     close(client_to_proxy_socket);
     // fclose(fp); //unsure if this should be turned back on, 
-    printf("Before bzero\n");
     bzero(buf, BUFSIZE);
-    printf("at the end of handle connection and returning null\n");
     return NULL;
 }
 
@@ -793,8 +803,10 @@ void *handle_connection(void *p_client_socket, int timeout) {
     mkdir("./glob_files", 0777);
 
     while (1) {
-        connfd = accept(listenfd, (struct sockaddr *) &clientaddr, &clientlen );
+        printf("\nANOTHER ONE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
         printf("\nconnection from %s, port %d\n", inet_ntop(AF_INET, &clientaddr.sin_addr, buf, sizeof(buf)), ntohs(clientaddr.sin_port) );
+        connfd = accept(listenfd, (struct sockaddr *) &clientaddr, &clientlen );
+        // printf("\nconnection from %s, port %d\n", inet_ntop(AF_INET, &clientaddr.sin_addr, buf, sizeof(buf)), ntohs(clientaddr.sin_port) );
         //CITATION: https://www.youtube.com/watch?v=Pg_4Jz8ZIH4
         int *pclient = malloc(sizeof(int));
         *pclient = connfd;
@@ -839,17 +851,26 @@ Tests:
     i) curl -v -x localhost:2000 http://netsys.cs.colorado.edu/
     ii) curl -v -x localhost:2000  http://netsys.cs.colorado.edu/images/wine3.jpg           
     
-    TODO for ii): This causes the single process program to end. Need to find out why
-    SOLVED: I was breaking my sending while loop with bytes_read being less than 1. But I was checking it like 
-        bytes_read = fread(buf, 1, BUFSIZE, fp);
-        Instead of   
-        bytes_read = fread(buf, 1, strlen(buf), fp); //THIS SOLVED IT
-    This meant that bytes_read was reading 2048 (BUFSIZE) of emptiness (null) and kept executing beyond what I wanted it to. 
+        TODO for ii): This causes the single process program to end. Need to find out why
+        SOLVED: I was breaking my sending while loop with bytes_read being less than 1. But I was checking it like 
+            bytes_read = fread(buf, 1, BUFSIZE, fp);
+            Instead of   
+            bytes_read = fread(buf, 1, strlen(buf), fp); //THIS SOLVED IT
+        This meant that bytes_read was reading 2048 (BUFSIZE) of emptiness (null) and kept executing beyond what I wanted it to. 
     
     iii) curl -v -x localhost:2000  http://netsys.cs.colorado.edu/images/apple_ex.png
 
-    TODO for iii) after multiple calls of iii and iv, eventually the program ends or getting content length (grab_content_length_From_file gives an error becuase stat() errors)
-    I'm unsure what is cuasing it becuase rapid calls don't have this problem. I think it may be an issue with my main while loop and not cleaning the variables
+    TODO for iii) 
+        - after multiple calls of iii and iv, eventually the program ends or getting content length (grab_content_length_From_file gives an error becuase stat() errors)
+            I'm unsure what is cuasing it becuase rapid calls don't have this problem. I think it may be an issue with my main while loop and not cleaning the variables
+        - So the file being requested in stat is not being called. Initial suspicion is that the timeout (when to write vs read is the catalyst here) 
+        - Further notes, the md5 of writetofilecache is creating a different file name than the md5 of read, 
+
+        SOLVED: I don't know why this occured but I decided to pass the first md5 string to the grab content to get rid of these issues
+
+
+    TODO for iii)
+        - Content type for response header is unkown. I do not believe I coded the proxyserver to client response type if fread from a file. 
 
     iv) curl -v -x localhost:2000 http://netsys.cs.colorado.edu/images/exam.gif
     v) curl -v -x localhost:2000 http://netsys.cs.colorado.edu/files/text1.txt
@@ -865,6 +886,63 @@ Tests:
 
 -) wget -e use_proxy=yes -e http_proxy=localhost:2000 http://httpforever.com
 
+-) wget -e use_proxy=yes -e http_proxy=localhost:2000 http://netsys.cs.colorado.edu/
+  TODO: the above call is causing an issue becuase my while loop of sending the data
+         bytes_read = fread(buf, 1, strlen(buf), fp);
+        if (bytes_read < 1) {
+            printf("in whle break\n");
+            break;
+        }
+    Is somehow geting to below zero before all the data is sent and thus "break" before all the data is sent.
+
+    Solved: I am still unsure why that error was occuring but I moved the break to the sendall error if, which solved it. 
+            I'll investigate why that happened after all features are complete
+            
+                if (sendall(client_to_proxy_socket, buf, BUFSIZE) == -1) {
+                    printf("Error in sending file data\n");
+                    break;
+                }
+-) wget -m -e http_proxy=localhost:2000 http://netsys.cs.colorado.edu/
+    TODO:I am only downloading one file with this and that file has 0 content, I think becuase the response is something I do not have my proxy server parsing. I'll need to talk
+        To professor herman about this.
+
+
+                        The client http being sent to the server: 
+
+                        GET http://netsys.cs.colorado.edu/ HTTP/1.1
+                        If-Modified-Since: Sat, 29 Mar 2025 17:00:46 GMT
+                        User-Agent: Wget/1.20.3 (linux-gnu)
+                        Accept: star/star
+                        Accept-Encoding: identity
+                        Host: netsys.cs.colorado.edu
+                        Connection: Keep-Alive
+                        Proxy-Connection: Keep-Alive
+
+
+                        THIS IS HTTP RESPONSE: 
+
+                        HTTP/1.1 304 Not Modified
+                        Date: Sat, 29 Mar 2025 17:03:50 GMT
+                        Server: Apache/2.4.6 (Red Hat Enterprise Linux)
+                        Connection: Keep-Alive
+                        Keep-Alive: timeout=5, max=100
+                        ETag: "d14-5973d84996d40"
+
+
+
+
+-) aria2c --http-proxy=localhost:2000 http://netsys.cs.colorado.edu/
+
+
+-) aria2c --http-proxy=localhost:2000 -i aria2c_test_file.txt
+    ISSUE: Multiple file downloads are cuasing me an issue here too.
+        Attempts: 
+            - Tried not closing socket connections
+            - Tried printing each connection being made
+            - THOUGHTS: What if the problem is int he http request I am sending from proxy to server? I hav enot built in multiple requests that probably
+                    get sent with aria2c and wget -m
+        
+
 
 -) blocklist file looks like (no tabs): 
     *.google.com
@@ -875,4 +953,37 @@ Tests:
 TODO: Testing Thoughts
 
 
+
+
+TODO: 
+
+--PRIME TASK: Ensure all the built features work seamslessly now.
+
+----Downloading the files 
+-------- I should also check other urls on networksystem site besides index
+-------- I should try and download with aria2c
+--------- I need to check downloading multiple files (wget -m, aria2c file list)
+
+----sending back incorrect http responses (400, 404, 403)
+--------- 400 Sent for no \r\n\r\n, no http 1.1 or 1.0, not GET verb
+--------- 404 sent for hostname not found (ip address)
+--------- 403 Block List works
+
+----cleaning up the code so no errors. 
+
+-- Link Prefetch (implemented link searchs, need to do http requests for them all)
+
+-- Need to figure out Keep-Alive 
+
+-- Different port than 80 (for proxy to server)
+
+-- Multithreading (synchronization)
+--------- A lot of features are going to have to be slightly tuned for the multithreading
+
+-- Regex Block (implemented, but the way I did it will hurt performance a lot)
+--- glob_files directory deletion needs to happen when 400,404, and 403s get sent (not happening right now)
+
+
 */
+
+

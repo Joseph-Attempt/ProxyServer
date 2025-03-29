@@ -941,6 +941,8 @@ Tests:
             - Tried printing each connection being made
             - THOUGHTS: What if the problem is int he http request I am sending from proxy to server? I hav enot built in multiple requests that probably
                     get sent with aria2c and wget -m
+            - MORE THOUGHTS: I think the issue is that my proxy server is built to receive a file, write the file, and serve that file back up, but not to receive a bunch of files
+                , send all of those files back.
         
 
 

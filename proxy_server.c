@@ -535,22 +535,140 @@ int check_block_list(struct hostent **req_host, int client_to_proxy_socket) {
     globfree(&glob_obj);
 }
 
+
+
+int pre_fetch_link(char link_string[100], char *http_req_header_client) {
+
+
+
+    char *saveptr_http_header;
+    char* copy_http_req_header;
+    char* http_header_line;
+    char *saveptr_line_http_header;
+    char *copy_http_header_line; 
+    char *http_verb;
+    char *http_url;
+    char *http_version; 
+    char *saveptr_line_host;
+    char *copy_header_line_host;
+    char *host_name;
+    char *host_exists;
+    char http_request_for_pre_fetch_link[400];
+    char pre_fetch_url[200];
+    char *check_for_http;
+    char *check_for_https;
+    char *check_for_relative_path;
+    char *check_for_num_sign;
+    // char *check_for_http;
+
+    
+    copy_http_req_header = strdup(http_req_header_client);//TODO: chek if strdup fails
+    http_header_line = strtok_r(copy_http_req_header, "\r\n", &saveptr_http_header);     
+    copy_http_header_line = strdup(http_header_line);
+    http_verb =  strtok_r(copy_http_header_line, " ", &saveptr_line_http_header);
+    http_url =  strtok_r(NULL, " ", &saveptr_line_http_header); 
+    http_version =  strtok_r(NULL, " ", &saveptr_line_http_header); 
+    http_header_line = strtok_r(NULL, "\r\n", &saveptr_http_header); 
+    while (1) {
+        host_exists = strstr(http_header_line, "Host:"); //TODO: Concerned if the content-length is spelled differently
+        if (host_exists != NULL) break;
+        http_header_line = strtok_r(NULL, "\r\n", &saveptr_http_header); //TODO: Check if it fails ?    
+    }
+
+    copy_header_line_host = strdup(http_header_line);//TODO: chek if strdup fails
+    strtok_r(copy_header_line_host, " ", &saveptr_line_host);
+    host_name = strtok_r(NULL, " ", &saveptr_line_host);
+    
+    // printf("In Pre_fetch_Link: http_req_header_client: %s\n", http_req_header_client);
+    // printf("IN PRE-FETCH-LINK FN:\nHttp_verb: %s, HTTP_url: %s, HTTP_version: %s, host_name: %s\n", http_verb, http_url, http_version, host_name);
+
+    // char *check_for_http;
+    // char *check_for_http;
+    // char *check_for_relative_path;
+
+    check_for_http = strstr(link_string, "http:");
+    check_for_https = strstr(link_string, "https:");
+    check_for_relative_path = strstr(link_string, "./");
+    check_for_num_sign = strstr(link_string, "#");
+
+    
+
+    if (check_for_http != NULL){
+        // sprintf(response_header, "HTTP/1.1 400 Bad Request\r\n\r\n400 Bad Request\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
+        // send(client_to_proxy_socket, response_header, strlen(response_header), 0);
+        printf("THIS IS A HTTP LINK: %s\n", link_string);
+        return -1; 
+    } else if (check_for_https != NULL){
+        printf("THIS IS A HTTPS LINK: %s\n", link_string);
+
+    } else if (check_for_relative_path != NULL) {
+        printf("THIS IS A RELATIVE PATH LINK: %s\n", link_string);
+
+    } else if (check_for_num_sign != NULL) {
+        printf("THIS IS A NUM SIGN LINK: %s\n", link_string);
+
+    } else {
+        printf("THIS IS A ELSE LINK: %s\n", link_string);
+
+    }
+
+
+
+    //TODO: 4 Types of href links on http://netsys.cs.colorado.edu/ (FOR SURE, will need to do 1 and 2)
+        // 1) Path start with directory name (images/wine3.jpg) 
+        // 2) Path start with . (./fancybox/jquery.fancybox-1.3.4.css), 
+        // 3) Path starts with http: (http://en.wikipedia.org/wiki/Web_server)
+        // 4) Path starts with https: (https://tools.ietf.org/html/rfc8312.txt)
+
+    //Build first line: GET [url/with file path/ or replaced url]/ HTTP/1.1
+    
+    //Build Second LIne: Host: 
+    
+
+    // Build User-Agent (??)
+
+    //Build Accept (??)
+
+    // Build Connection: Keep-Alive (??)
+
+    //Send HTTP Request
+
+    //Call writeFileToCache 
+
+
+    /* CLIENT HTTP REQUEST EXAMPLE 
+
+        GET http://netsys.cs.colorado.edu/ HTTP/1.1
+        Host: netsys.cs.colorado.edu
+        User-Agent: curl/7.68.0
+        Accept: star/star
+        Proxy-Connection: Keep-Alive
+    */
+
+    return 0;
+
+}
+
 //CITATION: https://stackoverflow.com/questions/13482519/c-find-all-occurrences-of-substring
 //The citation above is somewhat helpful, really just for using addition of the length to move past the first occurence
 //TODO: I can grab all the links, need to create http requests for them all and grab the files for prefetch
-int searching_for_links(char full_path[400]) {
+int searching_for_links(char full_path[400], char *http_req_header_client) {
     char *href_text = "href=\"";
+    char *src_text = "src=\"";
     char *quotation_text = "\"";
     char file_content[64000];
     FILE *fp = fopen(full_path, "r");
     int bytes_read;
     int byte_found_href;
+    int byte_found_src;
     int byte_found_ending_quotation_mark_for_href;
+    int byte_found_ending_quotation_mark_for_src;
     int copy_link_bytes;
     char *find_href;
+    char *find_src;
     char *find_quotation_after_href;
+    char *find_quotation_after_src;
     char link_string[100];
-
 
     if (fp == NULL) {
         printf("Error Opening File for searching_for_links Function\n");
@@ -576,10 +694,44 @@ int searching_for_links(char full_path[400]) {
             byte_found_ending_quotation_mark_for_href = find_quotation_after_href - file_content;
             copy_link_bytes = byte_found_ending_quotation_mark_for_href - byte_found_href - strlen(href_text);
             strncpy(link_string, find_href, copy_link_bytes);
-            printf("I am printing the link_string: \n%s\n", link_string);
+            pre_fetch_link(link_string, http_req_header_client);
+
+            // printf("HREF link_string: %s\n\n", link_string);
+            bzero(link_string, 100);
         }
         bzero(file_content, 64000);
       } 
+
+
+    fclose(fp);
+    fp = fopen(full_path, "r");
+
+    while (1){
+        bytes_read = fread(file_content, 1, 64000, fp);
+        if (bytes_read < 1) {
+          break;
+        }
+        find_src = file_content;
+        // find_src = strstr(find_src, href_text);
+        while(1) {
+            find_src = strstr(find_src, src_text);
+            if (find_src == NULL) break;
+            byte_found_src = find_src - file_content;
+
+            //TODO: Need to figure out if I should only be reading links that start with http.
+            find_src += strlen(src_text);
+            find_quotation_after_src = strstr(find_src, quotation_text);
+            byte_found_ending_quotation_mark_for_src = find_quotation_after_src - file_content;
+            copy_link_bytes = byte_found_ending_quotation_mark_for_src - byte_found_src - strlen(src_text);
+            strncpy(link_string, find_src, copy_link_bytes);
+            // printf("SRC link_string: %s\n\n", link_string);
+            pre_fetch_link(link_string, http_req_header_client);
+
+            bzero(link_string, 100);
+        }
+        bzero(file_content, 64000);
+      } 
+    fclose(fp);
     return 0;
 }
 
@@ -736,7 +888,7 @@ void *handle_connection(void *p_client_socket, int timeout) {
     build_http_response_for_client(http_req_header_client, buf, full_path);
     
     //TODO: The structure of how I call this will have to change with multi threading
-    // searching_for_links(full_path);
+    searching_for_links(full_path, http_req_header_client);
     //TODO: relay the results for the server (socket2) to the client (socket1)
     // printf("Bytes of Full_path after md5_file_name and after writeFiteTOCache, but right before fopen to read\n");
     fp = fopen(full_path, "r"); //Checking for file existense and readability happens in buildHTTPResponseHeader
@@ -755,7 +907,7 @@ void *handle_connection(void *p_client_socket, int timeout) {
       //I believe this means the programs I am using to test are cutting off unrelated bytes. I'm not sure I hould worry about this given my content lenght cuts off excess bytes 
       if (sendall(client_to_proxy_socket, buf, BUFSIZE) == -1) {
     //   if (sendall(client_to_proxy_socket, buf, strlen(buf) == -1) {
-            printf("Error in sending file data\n");
+            printf("From Sendall, using as a break: Error in sending file data\n");
             break;
       }
       bzero(buf, BUFSIZE);
@@ -803,7 +955,6 @@ void *handle_connection(void *p_client_socket, int timeout) {
     mkdir("./glob_files", 0777);
 
     while (1) {
-        printf("\nANOTHER ONE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
         printf("\nconnection from %s, port %d\n", inet_ntop(AF_INET, &clientaddr.sin_addr, buf, sizeof(buf)), ntohs(clientaddr.sin_port) );
         connfd = accept(listenfd, (struct sockaddr *) &clientaddr, &clientlen );
         // printf("\nconnection from %s, port %d\n", inet_ntop(AF_INET, &clientaddr.sin_addr, buf, sizeof(buf)), ntohs(clientaddr.sin_port) );
@@ -952,32 +1103,36 @@ Tests:
     69.147.71.[0-2][0-9][0-9]
 
 
-TODO: Testing Thoughts
+TODO: Testing Thoughts (PROFESSOR HERMAN QUESTIONS)
+-- ERROR CHecking HTTP Versions (400 fine response)? Only allowing 1.0 and 1.1?
 
 
 
 
 TODO: 
 
+
+--PRIME TASKs 30 MAR2025: 
+-- Link Prefetch (implemented link searchs, need to do http requests for them all)
+-- Different port than 80 (for proxy to server)
+-- Need to figure out Keep-Alive 
+
+
+
 --PRIME TASK: Ensure all the built features work seamslessly now.
 
 ----Downloading the files 
--------- I should also check other urls on networksystem site besides index
--------- I should try and download with aria2c
---------- I need to check downloading multiple files (wget -m, aria2c file list)
+-------- I should also check other urls on networksystem site besides index             SUCCESS
+-------- I should try and download with aria2c                                          SUCCESS
+--------- I need to check downloading multiple files (wget -m, aria2c file list)        FAIL (proxy-server not built for this, NEED TO CORRECT)
 
-----sending back incorrect http responses (400, 404, 403)
---------- 400 Sent for no \r\n\r\n, no http 1.1 or 1.0, not GET verb
---------- 404 sent for hostname not found (ip address)
---------- 403 Block List works
+----sending back incorrect http responses (400, 404, 403) (Checked but triple check right before submitting)
+--------- 400 Sent for no \r\n\r\n, no http 1.1 or 1.0, not GET verb                    SUCCESS
+--------- 404 sent for hostname not found (ip address)                                  SUCCESS
+--------- 403 Block List works                                                          SUCCESS 
+
 
 ----cleaning up the code so no errors. 
-
--- Link Prefetch (implemented link searchs, need to do http requests for them all)
-
--- Need to figure out Keep-Alive 
-
--- Different port than 80 (for proxy to server)
 
 -- Multithreading (synchronization)
 --------- A lot of features are going to have to be slightly tuned for the multithreading

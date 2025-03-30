@@ -86,7 +86,7 @@ int verify_HTTP_Req_Header(char http_req_header[BUFSIZE], int client_to_proxy_so
 
     http_body_separator = strstr(http_req_header, "\r\n\r\n");
     if (http_body_separator == NULL){
-        sprintf(response_header, "HTTP/1.1 400 Bad Request\r\n\r\n400 Bad Request\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
+        sprintf(response_header, "HTTP/1.1 400 Bad Request\r\n\r\n400 Bad Request\n");  
         send(client_to_proxy_socket, response_header, strlen(response_header), 0);
         printf("IN double carriage return issue\n");
         return -1; 
@@ -100,7 +100,7 @@ int verify_HTTP_Req_Header(char http_req_header[BUFSIZE], int client_to_proxy_so
     http_version =  strtok_r(NULL, " ", &saveptr_line_http_header); 
 
     if (strcasecmp(http_verb, "GET") != 0){
-        sprintf(response_header, "HTTP/1.1 400 Bad Request\r\n\r\n400 Bad Request\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
+        sprintf(response_header, "HTTP/1.1 400 Bad Request\r\n\r\n400 Bad Request\n");  
         send(client_to_proxy_socket, response_header, strlen(response_header), 0);
         printf("IN GET issue\n");
         printf("http_verb: %s\n", http_verb);
@@ -108,7 +108,7 @@ int verify_HTTP_Req_Header(char http_req_header[BUFSIZE], int client_to_proxy_so
         return -1;
     } 
     if (strcasecmp(http_version, "HTTP/1.1") != 0 && strcasecmp(http_version, "HTTP/1.0") != 0){
-        sprintf(response_header, "HTTP/1.1 400 Bad Request\r\n\r\n400 Bad Request\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
+        sprintf(response_header, "HTTP/1.1 400 Bad Request\r\n\r\n400 Bad Request\n");  
         send(client_to_proxy_socket, response_header, strlen(response_header), 0);
         printf("IN HTTP VERSION ISSUE issue\n");
 
@@ -132,7 +132,7 @@ int verify_HTTP_Req_Header(char http_req_header[BUFSIZE], int client_to_proxy_so
     //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
     printf("http_req_header in verifyHTTPREQHEADER: \n%s\n", http_req_header);
     if (req_host == NULL) {
-        sprintf(response_header, "HTTP/1.1 404 Not Found\r\n\r\n404 Not Found\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
+        sprintf(response_header, "HTTP/1.1 404 Not Found\r\n\r\n404 Not Found\n");  
         send(client_to_proxy_socket, response_header, strlen(response_header), 0);
         printf("IN HOST NOT FOUND ISSUE\n");
 
@@ -223,12 +223,12 @@ int writeFileToCache(FILE *fp, char http_res[BUFSIZE], int client_sockfd){
     int http_res_header_bytes;
     char *http_res_ends;
     char remainder_of_body[BUFSIZE];
-
+    printf("IN WRITEFILETOCACHE\n");
     
     n =  recv(client_sockfd, http_res, BUFSIZE, 0);
-    printf("THIS IS HTTP RESPONSE: \n%s\n", http_res);
+    // printf("THIS IS HTTP RESPONSE: \n%s\n", http_res);
     content_length = grabContentLength(http_res);
-    printf("this is content_length in writeFileToCache, content_length: %d\n", content_length);
+    // printf("this is content_length in writeFileToCache, content_length: %d\n", content_length);
     http_res_ends = strstr(http_res, "\r\n\r\n");
     http_res_header_bytes = http_res_ends + 4 - http_res;
     http_res_body_bytes_recv = n - http_res_header_bytes;
@@ -306,7 +306,7 @@ int grab_http_version(char http_header[BUFSIZE], char **http_version_return) {
     //TODO: I'm unclear how to test this, testing with curl http version 2 gets me a http header with http/1.1 in the first line, and an additional line where it states http2
     if (strcasecmp(*http_version_return, "HTTP/1.1") == 0 || strcasecmp(*http_version_return, "HTTP/1.0") == 0) return 0;
     // printf("The HTTP Version was not 1.1 or 1.0\n");
-    // sprintf(response_header, "HTTP/1.1 400 Bad Request\r\n\r\n400 Bad Request\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
+    // sprintf(response_header, "HTTP/1.1 400 Bad Request\r\n\r\n400 Bad Request\n");  
     // send(client_to_proxy_socket, response_header, strlen(response_header), 0);
 
     return -1;
@@ -344,8 +344,8 @@ int set_response_content_type(char file_type[FILETYPESIZE], char content_type[10
 int grab_file_type(char file_type[20], char url[200]) {
     //Citation: https://stackoverflow.com/questions/5309471/getting-file-extension-in-c
     char *file_at_end_of_url = strrchr(url, '/');
-    printf("In grabFile_type: url: %s\n", url);
-    printf("In grabFile_type: file_at_end_of_url: %s\n", file_at_end_of_url);
+    // printf("In grabFile_type: url: %s\n", url);
+    // printf("In grabFile_type: file_at_end_of_url: %s\n", file_at_end_of_url);
     char *ext;
     // if (file_at_end_of_url == NULL) Note: Consider Error checking here if I don't put the check in http verification function
     //We are assuming url is fully formed, so if there is nothing at the end of the last slash then the assumption is that the request is for an index.html
@@ -416,7 +416,7 @@ long long int grab_content_length_from_file(char full_path[400]){
         return -1; // Indicate an error
     }
     
-    printf("stat_inst.st_size: %ld\nn", stat_inst.st_size);
+    // printf("stat_inst.st_size: %ld\nn", stat_inst.st_size);
     return stat_inst.st_size; 
 }
 
@@ -468,7 +468,7 @@ int check_block_list(struct hostent **req_host, int client_to_proxy_socket) {
                 // printf("This is match_result: %d\n", match_result);
                 if (match_result == 0) {
                     // printf("we have a match on the block list. Sending 403 forbidden\n");
-                    sprintf(response_header, "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n403 Forbidden\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
+                    sprintf(response_header, "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n403 Forbidden\n");  
                     send(client_to_proxy_socket, response_header, strlen(response_header), 0);
                     close(fd);
                     remove(alias_buf);
@@ -512,7 +512,7 @@ int check_block_list(struct hostent **req_host, int client_to_proxy_socket) {
                 // printf("This is match_result: %d\n", match_result);
                 if (match_result == 0) {
                     // printf("we have a match on the block list. Sending 403 forbidden\n");
-                    sprintf(response_header, "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n403 Forbidden\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
+                    sprintf(response_header, "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n403 Forbidden\n");  
                     send(client_to_proxy_socket, response_header, strlen(response_header), 0);
                     close(fd);
                     remove(ip_buf);
@@ -537,13 +537,12 @@ int check_block_list(struct hostent **req_host, int client_to_proxy_socket) {
 
 
 
-int pre_fetch_link(char link_string[100], char *http_req_header_client) {
-
+int pre_fetch_link(char link_string[100], char *http_req_header_client, int timeout) {
 
 
     char *saveptr_http_header;
-    char* copy_http_req_header;
-    char* http_header_line;
+    char *copy_http_req_header;
+    char *http_header_line;
     char *saveptr_line_http_header;
     char *copy_http_header_line; 
     char *http_verb;
@@ -553,13 +552,30 @@ int pre_fetch_link(char link_string[100], char *http_req_header_client) {
     char *copy_header_line_host;
     char *host_name;
     char *host_exists;
-    char http_request_for_pre_fetch_link[400];
-    char pre_fetch_url[200];
     char *check_for_http;
     char *check_for_https;
     char *check_for_relative_path;
     char *check_for_num_sign;
-    // char *check_for_http;
+    char *md5_file_name;
+    char new_rel_path[100];
+    char url[200];
+    char full_path[400];
+    char http_request_for_pre_fetch_link[BUFSIZE];
+    char buf[BUFSIZE];
+    char pre_fetch_url[200];
+    FILE *fp;
+    struct hostent *req_host;
+    long long int time_since_creation;
+    int proxy_to_server_socket;
+    struct sockaddr_in serveraddr; 
+    int portno = 80;//got to change to input argument
+
+    bzero(buf, BUFSIZE);
+    bzero(http_request_for_pre_fetch_link, BUFSIZE);
+    bzero(pre_fetch_url, 200);
+    bzero(full_path, 400);
+    bzero(url, 100);
+    bzero(new_rel_path, 100);
 
     
     copy_http_req_header = strdup(http_req_header_client);//TODO: chek if strdup fails
@@ -579,71 +595,75 @@ int pre_fetch_link(char link_string[100], char *http_req_header_client) {
     strtok_r(copy_header_line_host, " ", &saveptr_line_host);
     host_name = strtok_r(NULL, " ", &saveptr_line_host);
     
-    // printf("In Pre_fetch_Link: http_req_header_client: %s\n", http_req_header_client);
-    // printf("IN PRE-FETCH-LINK FN:\nHttp_verb: %s, HTTP_url: %s, HTTP_version: %s, host_name: %s\n", http_verb, http_url, http_version, host_name);
-
-    // char *check_for_http;
-    // char *check_for_http;
-    // char *check_for_relative_path;
-
     check_for_http = strstr(link_string, "http:");
     check_for_https = strstr(link_string, "https:");
     check_for_relative_path = strstr(link_string, "./");
     check_for_num_sign = strstr(link_string, "#");
 
-    
+    //http://hostname/link_string
 
     if (check_for_http != NULL){
-        // sprintf(response_header, "HTTP/1.1 400 Bad Request\r\n\r\n400 Bad Request\n"); //TODO: Ask Professor Herman if our errror response header needs anything more besides the HTTP/1.1 and Status Code/Reason 
-        // send(client_to_proxy_socket, response_header, strlen(response_header), 0);
-        printf("THIS IS A HTTP LINK: %s\n", link_string);
-        return -1; 
+        sprintf(pre_fetch_url, "%s",link_string);
+        sprintf(http_request_for_pre_fetch_link, "%s %s %s\r\nHost: %s\r\nConnection: Keep-Alive\r\n\r\n", http_verb, pre_fetch_url, http_version, host_name);  
     } else if (check_for_https != NULL){
-        printf("THIS IS A HTTPS LINK: %s\n", link_string);
+        // NOT DOING HTTPS
+        return 0;
 
     } else if (check_for_relative_path != NULL) {
-        printf("THIS IS A RELATIVE PATH LINK: %s\n", link_string);
-
+        strcpy(new_rel_path, link_string + 2); // Copy from the third character
+        sprintf(pre_fetch_url, "http://%s/%s", host_name, new_rel_path);  
+        sprintf(http_request_for_pre_fetch_link, "%s %s %s\r\nHost: %s\r\nConnection: Keep-Alive\r\n\r\n", http_verb, pre_fetch_url, http_version, host_name);  
     } else if (check_for_num_sign != NULL) {
-        printf("THIS IS A NUM SIGN LINK: %s\n", link_string);
+        return 0;
 
     } else {
-        printf("THIS IS A ELSE LINK: %s\n", link_string);
+        sprintf(pre_fetch_url, "http://%s/%s", host_name, link_string);  
+        sprintf(http_request_for_pre_fetch_link, "%s %s %s\r\nHost: %s\r\nConnection: Keep-Alive\r\n\r\n", http_verb, pre_fetch_url, http_version, host_name);  
 
     }
 
+    req_host = gethostbyname(host_name); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
 
 
-    //TODO: 4 Types of href links on http://netsys.cs.colorado.edu/ (FOR SURE, will need to do 1 and 2)
-        // 1) Path start with directory name (images/wine3.jpg) 
-        // 2) Path start with . (./fancybox/jquery.fancybox-1.3.4.css), 
-        // 3) Path starts with http: (http://en.wikipedia.org/wiki/Web_server)
-        // 4) Path starts with https: (https://tools.ietf.org/html/rfc8312.txt)
-
-    //Build first line: GET [url/with file path/ or replaced url]/ HTTP/1.1
-    
-    //Build Second LIne: Host: 
-    
-
-    // Build User-Agent (??)
-
-    //Build Accept (??)
-
-    // Build Connection: Keep-Alive (??)
-
-    //Send HTTP Request
-
-    //Call writeFileToCache 
+    proxy_to_server_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (proxy_to_server_socket < 0) error("ERROR opening socket\n");
+    bzero((char *) &serveraddr, sizeof(serveraddr));
+    serveraddr.sin_family = AF_INET;
+    memcpy(&serveraddr.sin_addr.s_addr, req_host->h_addr_list[0], req_host->h_length);
+    serveraddr.sin_port = htons((unsigned short)portno);
+    if (connect(proxy_to_server_socket, (struct sockaddr*) &serveraddr, sizeof(serveraddr)) == -1){
+        printf("There was a problem connecting to the actual server\n");
+        error("connect:");
+        close(proxy_to_server_socket);
+        exit(EXIT_FAILURE);
+    }
 
 
-    /* CLIENT HTTP REQUEST EXAMPLE 
+    sendall(proxy_to_server_socket, http_request_for_pre_fetch_link, BUFSIZE);
+    bzero(http_request_for_pre_fetch_link, BUFSIZE);
 
-        GET http://netsys.cs.colorado.edu/ HTTP/1.1
-        Host: netsys.cs.colorado.edu
-        User-Agent: curl/7.68.0
-        Accept: star/star
-        Proxy-Connection: Keep-Alive
-    */
+    md5_file_name = str2md5(pre_fetch_url, strlen(pre_fetch_url));
+
+
+    sprintf(full_path, "./cache/%s", md5_file_name);
+    if (access(full_path, F_OK) == 0){
+        time_since_creation = get_time_since_creation(full_path);
+        if (time_since_creation < timeout){
+            // printf("WHat is Full_path: full_path: %s\n", full_path);
+            printf("IN REACHING FOR CACHE, NEED TO TEST, TODO: ACCTUALLY SHOULD NOT BE HERE IN THIS ITERATION OF CODE\n");
+            // fp = fopen(full_path, "r");
+        } else {
+            remove(full_path);
+            fp = fopen(full_path, "w");
+            printf("IN PRE FETCH: file already created but timeout, It did write\n");
+            // writeFileToCache(fp, buf, proxy_to_server_socket);
+            writeFileToCache(fp, http_request_for_pre_fetch_link, proxy_to_server_socket);
+        }
+    }else {
+        fp = fopen(full_path, "w");
+        printf("IN PRE-FETCH: file does not exist, It did write\n");
+        writeFileToCache(fp, http_request_for_pre_fetch_link, proxy_to_server_socket);
+    }
 
     return 0;
 
@@ -652,7 +672,7 @@ int pre_fetch_link(char link_string[100], char *http_req_header_client) {
 //CITATION: https://stackoverflow.com/questions/13482519/c-find-all-occurrences-of-substring
 //The citation above is somewhat helpful, really just for using addition of the length to move past the first occurence
 //TODO: I can grab all the links, need to create http requests for them all and grab the files for prefetch
-int searching_for_links(char full_path[400], char *http_req_header_client) {
+int searching_for_links(char full_path[400], char *http_req_header_client, int timeout) {
     char *href_text = "href=\"";
     char *src_text = "src=\"";
     char *quotation_text = "\"";
@@ -694,7 +714,7 @@ int searching_for_links(char full_path[400], char *http_req_header_client) {
             byte_found_ending_quotation_mark_for_href = find_quotation_after_href - file_content;
             copy_link_bytes = byte_found_ending_quotation_mark_for_href - byte_found_href - strlen(href_text);
             strncpy(link_string, find_href, copy_link_bytes);
-            pre_fetch_link(link_string, http_req_header_client);
+            pre_fetch_link(link_string, http_req_header_client, timeout);
 
             // printf("HREF link_string: %s\n\n", link_string);
             bzero(link_string, 100);
@@ -725,7 +745,7 @@ int searching_for_links(char full_path[400], char *http_req_header_client) {
             copy_link_bytes = byte_found_ending_quotation_mark_for_src - byte_found_src - strlen(src_text);
             strncpy(link_string, find_src, copy_link_bytes);
             // printf("SRC link_string: %s\n\n", link_string);
-            pre_fetch_link(link_string, http_req_header_client);
+            pre_fetch_link(link_string, http_req_header_client, timeout);
 
             bzero(link_string, 100);
         }
@@ -887,8 +907,6 @@ void *handle_connection(void *p_client_socket, int timeout) {
     bzero(buf, BUFSIZE); 
     build_http_response_for_client(http_req_header_client, buf, full_path);
     
-    //TODO: The structure of how I call this will have to change with multi threading
-    searching_for_links(full_path, http_req_header_client);
     //TODO: relay the results for the server (socket2) to the client (socket1)
     // printf("Bytes of Full_path after md5_file_name and after writeFiteTOCache, but right before fopen to read\n");
     fp = fopen(full_path, "r"); //Checking for file existense and readability happens in buildHTTPResponseHeader
@@ -912,6 +930,10 @@ void *handle_connection(void *p_client_socket, int timeout) {
       }
       bzero(buf, BUFSIZE);
     } 
+
+    //TODO: The structure of how I call this will have to change with multi threading
+    searching_for_links(full_path, http_req_header_client, timeout);
+    
     close(proxy_to_server_socket);
     close(client_to_proxy_socket);
     // fclose(fp); //unsure if this should be turned back on, 
@@ -1102,25 +1124,32 @@ Tests:
     *.linkedin.com
     69.147.71.[0-2][0-9][0-9]
 
-
+-) Pre-fetch links
+  i) Works for relative path links (./)
+  ii) Works for presumed full path links (images/apple.png, etc)
 TODO: Testing Thoughts (PROFESSOR HERMAN QUESTIONS)
 -- ERROR CHecking HTTP Versions (400 fine response)? Only allowing 1.0 and 1.1?
-
-
+-- When doing pre-fetch, I am accoutning for the href and src txt looking like one of the four. Should I be looking for any more string variations?
+    1) Path start with directory name (images/wine3.jpg) 
+    2) Path start with . (./fancybox/jquery.fancybox-1.3.4.css), 
+    3) Path starts with http: (http://en.wikipedia.org/wiki/Web_server)
+    4) Path starts with https: (https://tools.ietf.org/html/rfc8312.txt)
+-- Multiple download issue (aria2c -i, wget -m)
+    - I believe it is a proxy server closing connections issue or just being available to download mutliple files. I don't know why my code is doing this one odd
 
 
 TODO: 
 
 
---PRIME TASKs 30 MAR2025: 
--- Link Prefetch (implemented link searchs, need to do http requests for them all)
+--PRIME TASKs 31 MAR2025: 
 -- Different port than 80 (for proxy to server)
--- Need to figure out Keep-Alive 
+-- Need to figure out Keep-Alive
+-- Office Hours 
+-- Multithreading (synchronization)
+--------- A lot of features are going to have to be slightly tuned for the multithreading
 
 
-
---PRIME TASK: Ensure all the built features work seamslessly now.
-
+--BEFORE SUBMITTING: Check AGAIN to Ensure all the built features work seamslessly .
 ----Downloading the files 
 -------- I should also check other urls on networksystem site besides index             SUCCESS
 -------- I should try and download with aria2c                                          SUCCESS
@@ -1132,14 +1161,49 @@ TODO:
 --------- 403 Block List works                                                          SUCCESS 
 
 
-----cleaning up the code so no errors. 
-
--- Multithreading (synchronization)
---------- A lot of features are going to have to be slightly tuned for the multithreading
+----cleaning up the code so no errors, print statements, unnecessairy comments, 
 
 -- Regex Block (implemented, but the way I did it will hurt performance a lot)
 --- glob_files directory deletion needs to happen when 400,404, and 403s get sent (not happening right now)
 
+
+
+
+
+
+
+
+
+
+
+COMPARING FILES: 
+
+user@csci4273:~/SP2025/PA3$ cmp -b cache/9a221bcc43b871a41561e283b85ebf6b ../PA2/www/css
+cmp: ../PA2/www/css: Is a directory
+user@csci4273:~/SP2025/PA3$ cmp -b cache/9a221bcc43b871a41561e283b85ebf6b ../PA2/www/css/style.css 
+user@csci4273:~/SP2025/PA3$ cmp -b cache/323128f42011c756d8337c479da371e1 ../PA2/www/images/wine3.jpg 
+user@csci4273:~/SP2025/PA3$ cmp -b cache/f36494da664953f90ed1ceee46463996 ../PA2/www/images/apple_ex.png 
+user@csci4273:~/SP2025/PA3$ cmp -b cache/f36494da664953f90ed1ceee46463996 ../PA2/www/f
+fancybox/    favicon.ico  files/       
+user@csci4273:~/SP2025/PA3$ cmp -b cache/f36494da664953f90ed1ceee46463996 ../PA2/www/f
+fancybox/    favicon.ico  files/       
+user@csci4273:~/SP2025/PA3$ cmp -b cache/05cd3d7dd38a924aa3ef50f4ff81fde2 ../PA2/www/files/text1.txt 
+user@csci4273:~/SP2025/PA3$ cmp -b cache/b9322ffc7816f294f072d080d0133e97 ../PA2/www/jquery-1.4.3.min.js 
+
+
+user@csci4273:~/SP2025/PA3$ cmp -b ../PA2/www/fancybox/jquery.fancybox-1.3.4. cache/99023357e5ef5b5193b39f6ceb2facaa 
+cmp: ../PA2/www/fancybox/jquery.fancybox-1.3.4.: No such file or directory
+user@csci4273:~/SP2025/PA3$ cmp -b ../PA2/www/fancybox/jquery.fancybox-1.3.4. cache/99023357e5ef5b5193b39f6ceb2
+cmp: ../PA2/www/fancybox/jquery.fancybox-1.3.4.: No such file or directory
+user@csci4273:~/SP2025/PA3$ cmp -b ../PA2/www/fancybox/jquery.fancybox-1.3.4.css cache/99023357e5ef5b5193b39f6ceb2
+cmp: cache/99023357e5ef5b5193b39f6ceb2: No such file or directory
+user@csci4273:~/SP2025/PA3$ cmp -b ../PA2/www/fancybox/jquery.fancybox-1.3.4.css cache/99023357e5ef5b5193b39f6ceb2facaa 
+user@csci4273:~/SP2025/PA3$ cmp -b ../PA2/www/fancybox/jquery.mousewheel-3.0.4.pack.js cache/77f8a82e2efc244d12f38946b908a13e 
+user@csci4273:~/SP2025/PA3$ cmp -b ../PA2/www/fancybox/jquery.fancybox-1.3.4.pack.js cache/08eb0687184592a535762c3c5a9479db 
+user@csci4273:~/SP2025/PA3$ cmp -b ../PA2/www/images/welcome.png cache/271131b6a57b7732f90d323f0907cdec 
+user@csci4273:~/SP2025/PA3$ cmp -b ../PA2/www/graphics/mov.gif cache/5a65f49541de677ebf8695a75fc48370 
+user@csci4273:~/SP2025/PA3$ cmp -b ../PA2/www/graphics/pdf.gif cache/6afd0802f16947dd7cc32926b2506f96 
+user@csci4273:~/SP2025/PA3$ cmp -b ../PA2/www/graphics/txt.gif cache/5ffbf3f87b0289f9840a1c643059712a 
 
 */
 

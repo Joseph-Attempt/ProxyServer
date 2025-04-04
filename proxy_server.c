@@ -1,5 +1,4 @@
 #define _GNU_SOURCE
-
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -67,6 +66,8 @@ int sendall(int s, char *buf, int len){
 } 
 
 //Verify the HTTP Request Header: Verify double carriage return, No other Method but GET used, and Host Name resolves to IP Address
+
+//TODO: I will need to asses here whether the url has a port number attached to the url and change the 
 int verify_HTTP_Req_Header(char http_req_header[BUFSIZE], int client_to_proxy_socket) {
     struct hostent *req_host;
     char *http_body_separator;
@@ -83,6 +84,7 @@ int verify_HTTP_Req_Header(char http_req_header[BUFSIZE], int client_to_proxy_so
     char *host_name;
     char *host_exists;
     char response_header[200];
+    char host_name_no_port[100];
 
     http_body_separator = strstr(http_req_header, "\r\n\r\n");
     if (http_body_separator == NULL){
@@ -127,7 +129,19 @@ int verify_HTTP_Req_Header(char http_req_header[BUFSIZE], int client_to_proxy_so
     copy_header_line_host = strdup(http_header_line);//TODO: chek if strdup fails
     strtok_r(copy_header_line_host, " ", &saveptr_line_host);
     host_name = strtok_r(NULL, " ", &saveptr_line_host);
-    req_host = gethostbyname(host_name); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
+    char *colon = strstr(host_name, ":");
+    if (colon == NULL) {
+        req_host = gethostbyname(host_name); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
+
+    } else{
+        //TODO: There are more issues with this down the line. 
+        printf("host_name: %s", host_name);
+        printf("colon: %s\n", colon);
+        strncpy(host_name_no_port, host_name, strlen(host_name) - strlen(colon));
+        printf("actual host name no colon:  %s\n", host_name_no_port);
+        req_host = gethostbyname(host_name_no_port); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
+
+    }
     
     //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
     printf("http_req_header in verifyHTTPREQHEADER: \n%s\n", http_req_header);
@@ -265,6 +279,8 @@ int grab_host_by_name(char http_res[BUFSIZE], struct hostent **req_host) {
     char *header_line_host;
     char *host_name;
     char *host_exists;
+    char *colon_before_port;
+    char host_name_no_port[100];
     
     copy_http_req_header = strdup(http_res);//TODO: chek if strdup fails
     http_header_line = strtok_r(copy_http_req_header, "\r\n", &saveptr_http_header); //TODO: Check if it fails ?  
@@ -277,7 +293,22 @@ int grab_host_by_name(char http_res[BUFSIZE], struct hostent **req_host) {
     header_line_host = strdup(http_header_line);//TODO: chek if strdup fails
     strtok_r(header_line_host, " ", &saveptr_line_host);
     host_name = strtok_r(NULL, " ", &saveptr_line_host);
-    *req_host = gethostbyname(host_name); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
+
+    colon_before_port = strstr(host_name, ":");
+
+    if (colon_before_port == NULL){
+        *req_host = gethostbyname(host_name); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
+
+    }else {
+        printf("host_name: %s\n", host_name);
+        printf("colon_before_port: %s\n", colon_before_port);
+
+        printf("strlen(host_name) - strlen(colon_before_port): %ld\n", strlen(host_name) - strlen(colon_before_port));
+        strncpy(host_name_no_port, host_name, colon_before_port - host_name);
+        printf("hos_name_no_port: %s\n", host_name_no_port);
+        *req_host = gethostbyname(host_name_no_port); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
+    }
+
     return 0;
 }
 
@@ -445,16 +476,23 @@ int check_block_list(struct hostent **req_host, int client_to_proxy_socket) {
         printf("blocklist file opening caused error\n");
         return -1; 
     }
-
+    printf("line 463\n");
     // printf("*req_host->h_name: %s\n", (*req_host)->h_name);
 
     while (fgets(file_line_pattern, 400, fp) != NULL) {
+        printf("line 467\n");
+        printf("file_line_pattern: %s\n", file_line_pattern);
         file_line_pattern[strcspn(file_line_pattern, "\n")] = '\0'; //\n was causing it not to match
+        printf("line 470\n");
         // printf("file_line_pattern: %s\n", file_line_pattern);
 
         if ((*req_host)->h_aliases[aliases_ele] != NULL) {
+            printf("line 472\n");
+
             while ((*req_host)->h_aliases[aliases_ele] != NULL){
                 alias = (*req_host)->h_aliases[aliases_ele];
+                printf("line 474\n");
+
                 int file_descriptor;
                 char alias_buf[400]; 
                 sprintf(alias_buf, "glob_files/%s", alias);
@@ -462,7 +500,9 @@ int check_block_list(struct hostent **req_host, int client_to_proxy_socket) {
                 sprintf(file_line_pattern_with_directory, "glob_files/%s", file_line_pattern);
                 // printf("This is file_line_pattern with directiry: %s\n\n", file_line_pattern_with_directory);
 
-                int fd = open(alias_buf, O_CREAT, 0644);                
+                int fd = open(alias_buf, O_CREAT, 0644);   
+                printf("line 481\n");
+             
                 match_result = glob(file_line_pattern_with_directory, 0, NULL, &glob_obj);
                 // printf("for posterity\n");
                 // printf("This is match_result: %d\n", match_result);
@@ -569,6 +609,8 @@ int pre_fetch_link(char link_string[100], char *http_req_header_client, int time
     int proxy_to_server_socket;
     struct sockaddr_in serveraddr; 
     int portno = 80;//got to change to input argument
+    char *colon_before_port;
+    char host_name_no_port[100];
 
     bzero(buf, BUFSIZE);
     bzero(http_request_for_pre_fetch_link, BUFSIZE);
@@ -576,8 +618,8 @@ int pre_fetch_link(char link_string[100], char *http_req_header_client, int time
     bzero(full_path, 400);
     bzero(url, 100);
     bzero(new_rel_path, 100);
+    bzero(host_name_no_port, 100);
 
-    
     copy_http_req_header = strdup(http_req_header_client);//TODO: chek if strdup fails
     http_header_line = strtok_r(copy_http_req_header, "\r\n", &saveptr_http_header);     
     copy_http_header_line = strdup(http_header_line);
@@ -595,6 +637,11 @@ int pre_fetch_link(char link_string[100], char *http_req_header_client, int time
     strtok_r(copy_header_line_host, " ", &saveptr_line_host);
     host_name = strtok_r(NULL, " ", &saveptr_line_host);
     
+    colon_before_port = strstr(host_name, ":");
+
+
+    
+
     check_for_http = strstr(link_string, "http:");
     check_for_https = strstr(link_string, "https:");
     check_for_relative_path = strstr(link_string, "./");
@@ -622,8 +669,17 @@ int pre_fetch_link(char link_string[100], char *http_req_header_client, int time
 
     }
 
-    req_host = gethostbyname(host_name); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
+    // req_host = gethostbyname(host_name); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
+    if (colon_before_port == NULL){
+        req_host = gethostbyname(host_name); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
+        portno = 80;
 
+    }else {
+        //TODO: PIAZZA MSG Professor Herman, result I get when portno is different than 80 is failure but I think it is failure because the origin server does not serve resources at that port.
+        portno = atoi(colon_before_port+1);
+        strncpy(host_name_no_port, host_name, colon_before_port - host_name);
+        req_host = gethostbyname(host_name_no_port); //TODO: Replace with getaddrinfo since gethostbyname is not thread safe
+    }
 
     proxy_to_server_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (proxy_to_server_socket < 0) error("ERROR opening socket\n");
@@ -690,6 +746,7 @@ int searching_for_links(char full_path[400], char *http_req_header_client, int t
     char *find_quotation_after_src;
     char link_string[100];
 
+    printf("In searching for links!\n");
     if (fp == NULL) {
         printf("Error Opening File for searching_for_links Function\n");
         return -1; 
@@ -697,6 +754,7 @@ int searching_for_links(char full_path[400], char *http_req_header_client, int t
 
     //TODO: Consider issue if link i ssplit between one fgets and another??
     while (1){
+        printf("line 742\n");
         bytes_read = fread(file_content, 1, 64000, fp);
         if (bytes_read < 1) {
           break;
@@ -704,6 +762,8 @@ int searching_for_links(char full_path[400], char *http_req_header_client, int t
         find_href = file_content;
         // find_href = strstr(find_href, href_text);
         while(1) {
+            printf("line 750\n");
+
             find_href = strstr(find_href, href_text);
             if (find_href == NULL) break;
             byte_found_href = find_href - file_content;
@@ -714,6 +774,7 @@ int searching_for_links(char full_path[400], char *http_req_header_client, int t
             byte_found_ending_quotation_mark_for_href = find_quotation_after_href - file_content;
             copy_link_bytes = byte_found_ending_quotation_mark_for_href - byte_found_href - strlen(href_text);
             strncpy(link_string, find_href, copy_link_bytes);
+            printf("line 762\n");
             pre_fetch_link(link_string, http_req_header_client, timeout);
 
             // printf("HREF link_string: %s\n\n", link_string);
@@ -804,6 +865,51 @@ Content-Length:<> # Numeric value of the number of bytes of <file contents>
     return 0;
 }
 
+//I repeat the code below so many times, I should have a function do it.
+int grab_port_num(char http_cli_req_header[BUFSIZE]) {
+
+    char *http_body_separator;
+    char *saveptr_http_header;
+    char* copy_http_req_header;
+    char* http_header_line;
+    char *saveptr_line_http_header;
+    char *copy_http_header_line; 
+    char *http_url;
+    char *first_colon;
+    char *second_colon;
+    char *end_of_port_string;
+    int byte_found_second_colon;
+    int byte_found_ending_port_string;
+    int copy_link_bytes;
+    char portno[30];
+
+    bzero(portno, 30);
+
+    copy_http_req_header = strdup(http_cli_req_header);//TODO: chek if strdup fails
+    http_header_line = strtok_r(copy_http_req_header, "\r\n", &saveptr_http_header); //TODO: Check if it fails ?    
+    copy_http_header_line = strdup(http_header_line);//TODO: chek if strdup fails
+    strtok_r(copy_http_header_line, " ", &saveptr_line_http_header);
+    http_url =  strtok_r(NULL, " ", &saveptr_line_http_header); //TODO: Delete ? Unsure if I am checking these
+
+    first_colon = strstr(http_url, ":");
+    second_colon = strstr(first_colon + 1, ":");
+    
+    if (second_colon == NULL) {
+        printf("IT IS NULL, return 80!\n");
+        return 80;
+    }
+
+    byte_found_second_colon = second_colon - http_cli_req_header;
+    end_of_port_string = strstr(second_colon, "/");
+    byte_found_ending_port_string = end_of_port_string - http_cli_req_header;
+    copy_link_bytes = byte_found_ending_port_string - byte_found_second_colon - 1;
+    strncpy(portno, second_colon +1, copy_link_bytes);
+    return atoi(portno);
+
+
+    // return -1;
+}
+
 void *handle_connection(void *p_client_socket, int timeout) {
 
     int client_to_proxy_socket = * ((int*)p_client_socket);
@@ -837,13 +943,14 @@ void *handle_connection(void *p_client_socket, int timeout) {
 
     n = recv(client_to_proxy_socket, buf, BUFSIZE, 0);
     if (n < 0) error("ERROR in recvfrom\n");
-    // printf("Buf: \n%s\n", buf);
-
     if (verify_HTTP_Req_Header(buf, client_to_proxy_socket) !=0) {
         printf("Verify HTTP Req Header had some error\n");
         error("HTTP Verification Failed");
         return NULL;
     }
+    portno = grab_port_num(buf);
+    printf("portno complete and this is the value: %d\n", portno);
+
 
     // printf("HTTP REQUEST in HANDLE CONNECTION: \n%s\n", buf);
     // grab_http_version(buf);
@@ -860,6 +967,7 @@ void *handle_connection(void *p_client_socket, int timeout) {
         return NULL;
     }
     //TODO: Build in functionality for the user setting the port
+    printf("LINE: 926\n");
     portno = 80; 
     proxy_to_server_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (proxy_to_server_socket < 0) error("ERROR opening socket\n");
@@ -1128,18 +1236,24 @@ Tests:
   i) Works for relative path links (./)
   ii) Works for presumed full path links (images/apple.png, etc)
 TODO: Testing Thoughts (PROFESSOR HERMAN QUESTIONS)
+
 -- ERROR CHecking HTTP Versions (400 fine response)? Only allowing 1.0 and 1.1?
+
 -- When doing pre-fetch, I am accoutning for the href and src txt looking like one of the four. Should I be looking for any more string variations?
     1) Path start with directory name (images/wine3.jpg) 
     2) Path start with . (./fancybox/jquery.fancybox-1.3.4.css), 
     3) Path starts with http: (http://en.wikipedia.org/wiki/Web_server)
     4) Path starts with https: (https://tools.ietf.org/html/rfc8312.txt)
+
+    PROF HERM OH: Just do 1 and 2. Keep 3 if you want. Get rid of 4 (https)
+
 -- Multiple download issue (aria2c -i, wget -m)
     - I believe it is a proxy server closing connections issue or just being available to download mutliple files. I don't know why my code is doing this one odd
-
+  ---ANSWER OH: Persistent connections are helpful, especially when dealing with clients that are expecting with persistent connection. It sounds like that the wget -m is expecting the connection to stay open for additional requests but your giving the client that your opening 
+-- WHen I get a port that is different than 80, do I leave that in the http request header? or do I strip that out?     
 
 TODO: 
-
+NOTE: OH Herman: Socket option keep-alive is diffierent than the http-protocol keep-alive
 
 --PRIME TASKs 31 MAR2025: 
 -- Different port than 80 (for proxy to server)
@@ -1147,6 +1261,9 @@ TODO:
 -- Office Hours 
 -- Multithreading (synchronization)
 --------- A lot of features are going to have to be slightly tuned for the multithreading
+-- HOST defensive programming becuase "HOST: " line might not be in every http request
+-- Ensure Portno is changed when a user puts in non 80
+
 
 
 --BEFORE SUBMITTING: Check AGAIN to Ensure all the built features work seamslessly .
@@ -1165,6 +1282,7 @@ TODO:
 
 -- Regex Block (implemented, but the way I did it will hurt performance a lot)
 --- glob_files directory deletion needs to happen when 400,404, and 403s get sent (not happening right now)
+
 
 
 
